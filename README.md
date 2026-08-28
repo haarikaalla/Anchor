@@ -56,6 +56,8 @@ probabilistic claims that evolve:
 
 (Deterministic, fully offline. Numbers reproduce via the command above.)
 
+![Benchmark: Anchor vs summary vs RAG on accuracy, update accuracy and poison resistance](docs/assets/benchmark.svg)
+
 ---
 
 ## How it works
@@ -110,6 +112,11 @@ stateDiagram-v2
     superseded --> [*]
     retracted --> [*]
 ```
+
+Confidence is *earned and lost* — here is a real belief's trajectory from the
+demo (reinforcement lifts it, a contradiction and later decay lower it):
+
+![Confidence over time — a belief reinforced, contradicted, and decayed](docs/assets/confidence-timeline.svg)
 
 - **Reinforcement** — repeated corroboration adds *evidence* (`alpha`),
   increasing confidence; promotion to `active` can require multiple sources.

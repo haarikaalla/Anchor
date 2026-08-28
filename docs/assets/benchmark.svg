@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="420" viewBox="0 0 820 420" font-family="'Segoe UI',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="820" height="420" rx="12" fill="#0d1117"/>
+  <text x="40" y="46" fill="#c9d1d9" font-size="22" font-weight="700">Benchmark — memory accuracy under updates &amp; poisoning</text>
+  <text x="40" y="70" fill="#8b949e" font-size="14">30 memory slots · 200+ events · value updates + low-trust poisoning attacks · deterministic &amp; offline</text>
+
+  <!-- axes -->
+  <line x1="60" y1="110" x2="60" y2="330" stroke="#30363d" stroke-width="1.5"/>
+  <line x1="60" y1="330" x2="780" y2="330" stroke="#30363d" stroke-width="1.5"/>
+  <!-- gridlines -->
+  <line x1="60" y1="330" x2="780" y2="330" stroke="#30363d" stroke-dasharray="3 4"/>
+  <line x1="60" y1="275" x2="780" y2="275" stroke="#21262d" stroke-dasharray="3 4"/>
+  <line x1="60" y1="220" x2="780" y2="220" stroke="#21262d" stroke-dasharray="3 4"/>
+  <line x1="60" y1="165" x2="780" y2="165" stroke="#21262d" stroke-dasharray="3 4"/>
+  <line x1="60" y1="110" x2="780" y2="110" stroke="#21262d" stroke-dasharray="3 4"/>
+  <text x="52" y="335" fill="#6e7681" font-size="12" text-anchor="end">0.0</text>
+  <text x="52" y="280" fill="#6e7681" font-size="12" text-anchor="end">0.25</text>
+  <text x="52" y="225" fill="#6e7681" font-size="12" text-anchor="end">0.50</text>
+  <text x="52" y="170" fill="#6e7681" font-size="12" text-anchor="end">0.75</text>
+  <text x="52" y="115" fill="#6e7681" font-size="12" text-anchor="end">1.00</text>
+
+  <!-- group: three metrics, three memories. bar height = value*220 -->
+  <!-- summary group (center ~180) -->
+  <text x="200" y="352" fill="#c9d1d9" font-size="14" text-anchor="middle" font-weight="600">summary (overwrite)</text>
+  <rect x="120" y="176.6" width="44" height="153.4" rx="4" fill="#484f58"/>
+  <text x="142" y="168" fill="#8b949e" font-size="12" text-anchor="middle">0.70</text>
+  <rect x="178" y="158.4" width="44" height="171.6" rx="4" fill="#6e7681"/>
+  <text x="200" y="150" fill="#8b949e" font-size="12" text-anchor="middle">0.78</text>
+  <rect x="236" y="330" width="44" height="0.1" rx="4" fill="#f85149"/>
+  <text x="258" y="322" fill="#f85149" font-size="12" text-anchor="middle">0.00</text>
+
+  <!-- rag group (center ~430) -->
+  <text x="450" y="352" fill="#c9d1d9" font-size="14" text-anchor="middle" font-weight="600">rag (vector)</text>
+  <rect x="370" y="191.4" width="44" height="138.6" rx="4" fill="#484f58"/>
+  <text x="392" y="183" fill="#8b949e" font-size="12" text-anchor="middle">0.63</text>
+  <rect x="428" y="206.8" width="44" height="123.2" rx="4" fill="#6e7681"/>
+  <text x="450" y="198" fill="#8b949e" font-size="12" text-anchor="middle">0.56</text>
+  <rect x="486" y="206.8" width="44" height="123.2" rx="4" fill="#a86a2c"/>
+  <text x="508" y="198" fill="#d29922" font-size="12" text-anchor="middle">0.56</text>
+
+  <!-- anchor group (center ~680) -->
+  <text x="680" y="352" fill="#58a6ff" font-size="14" text-anchor="middle" font-weight="700">anchor</text>
+  <rect x="600" y="110" width="44" height="220" rx="4" fill="#2ea043"/>
+  <text x="622" y="102" fill="#3fb950" font-size="12" text-anchor="middle" font-weight="700">1.00</text>
+  <rect x="658" y="110" width="44" height="220" rx="4" fill="#3fb950"/>
+  <text x="680" y="102" fill="#3fb950" font-size="12" text-anchor="middle" font-weight="700">1.00</text>
+  <rect x="716" y="110" width="44" height="220" rx="4" fill="#56d364"/>
+  <text x="738" y="102" fill="#3fb950" font-size="12" text-anchor="middle" font-weight="700">1.00</text>
+
+  <!-- legend -->
+  <rect x="250" y="382" width="14" height="14" rx="3" fill="#484f58"/>
+  <text x="270" y="394" fill="#8b949e" font-size="13">accuracy</text>
+  <rect x="360" y="382" width="14" height="14" rx="3" fill="#6e7681"/>
+  <text x="380" y="394" fill="#8b949e" font-size="13">update accuracy</text>
+  <rect x="520" y="382" width="14" height="14" rx="3" fill="#a86a2c"/>
+  <text x="540" y="394" fill="#8b949e" font-size="13">poison resistance</text>
+</svg>
