@@ -207,7 +207,7 @@ More detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 python -m pytest -q
 ```
 
-45 tests cover confidence math, storage & audit tamper-detection, contradiction
+47 tests cover confidence math, storage & audit tamper-detection, contradiction
 logic, security defenses, temporal decay, the engine lifecycle, and the
 evaluation harness.
 
