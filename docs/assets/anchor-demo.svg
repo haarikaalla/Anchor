@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="470" viewBox="0 0 820 470" font-family="'Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2230"/>
+      <stop offset="1" stop-color="#0d1117"/>
+    </linearGradient>
+  </defs>
+  <!-- window -->
+  <rect x="8" y="8" width="804" height="454" rx="12" fill="url(#bg)" stroke="#30363d" stroke-width="1.5"/>
+  <!-- title bar -->
+  <rect x="8" y="8" width="804" height="34" rx="12" fill="#161b22"/>
+  <rect x="8" y="28" width="804" height="14" fill="#161b22"/>
+  <circle cx="30" cy="25" r="6" fill="#ff5f56"/>
+  <circle cx="50" cy="25" r="6" fill="#ffbd2e"/>
+  <circle cx="70" cy="25" r="6" fill="#27c93f"/>
+  <text x="410" y="29" fill="#8b949e" font-size="13" text-anchor="middle">anchor — belief memory that reasons over time</text>
+
+  <text font-size="14.5" xml:space="preserve">
+    <tspan x="28" y="68" fill="#58a6ff">anchor&gt;</tspan><tspan fill="#c9d1d9"> observe user lives_in Berlin --source chat</tspan>
+    <tspan x="28" y="90" fill="#3fb950">  CREATED</tspan><tspan fill="#8b949e"> user lives_in Berlin  (conf 0.66, provisional)</tspan>
+
+    <tspan x="28" y="118" fill="#58a6ff">anchor&gt;</tspan><tspan fill="#c9d1d9"> observe user lives_in Berlin --source calendar</tspan>
+    <tspan x="28" y="140" fill="#3fb950">  REINFORCED</tspan><tspan fill="#8b949e"> conf 0.66 → 0.74  →  status </tspan><tspan fill="#3fb950">active</tspan>
+
+    <tspan x="28" y="168" fill="#58a6ff">anchor&gt;</tspan><tspan fill="#c9d1d9"> observe user lives_in Munich --source chat</tspan>
+    <tspan x="28" y="190" fill="#f85149">  CONTRADICTION</tspan><tspan fill="#8b949e"> 'Munich' vs 'Berlin'  —  </tspan><tspan fill="#d29922">NOT overwritten</tspan>
+
+    <tspan x="28" y="218" fill="#58a6ff">anchor&gt;</tspan><tspan fill="#c9d1d9"> resolve con_f0b4 --strategy newest</tspan>
+    <tspan x="28" y="240" fill="#3fb950">  RESOLVED</tspan><tspan fill="#8b949e"> Munich </tspan><tspan fill="#3fb950">active</tspan><tspan fill="#8b949e"> · Berlin </tspan><tspan fill="#8b949e">superseded (kept for history)</tspan>
+
+    <tspan x="28" y="268" fill="#58a6ff">anchor&gt;</tspan><tspan fill="#c9d1d9"> recall where does the user live?</tspan>
+    <tspan x="28" y="290" fill="#8b949e">  → user lives_in </tspan><tspan fill="#c9d1d9">Munich</tspan><tspan fill="#8b949e">  (score 0.16, conf 0.53, active)</tspan>
+
+    <tspan x="28" y="318" fill="#58a6ff">anchor&gt;</tspan><tspan fill="#c9d1d9"> audit</tspan>
+    <tspan x="28" y="340" fill="#8b949e">  created · promoted · reinforced · contradiction_detected</tspan>
+    <tspan x="28" y="360" fill="#8b949e">  belief_superseded · contradiction_resolved</tspan>
+    <tspan x="28" y="382" fill="#8b949e">  hash-chain intact: </tspan><tspan fill="#3fb950">True</tspan>
+  </text>
+
+  <!-- footer strip -->
+  <rect x="8" y="410" width="804" height="52" fill="#0d1117"/>
+  <text x="28" y="435" fill="#58a6ff" font-size="13">confidence · reinforcement</text>
+  <text x="300" y="435" fill="#d29922" font-size="13">contradiction · resolution</text>
+  <text x="560" y="435" fill="#3fb950" font-size="13">temporal decay · tamper-evident audit</text>
+  <text x="28" y="453" fill="#6e7681" font-size="12">$ anchor shell   —   type facts and questions live; memory persists</text>
+</svg>

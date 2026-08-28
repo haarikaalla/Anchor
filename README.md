@@ -5,10 +5,18 @@ Bayesian confidence, reinforcement, temporal reasoning, contradiction detection,
 decay, and human-in-the-loop confirmation. Anchor never silently overwrites
 conflicting memories.
 
+![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-47%20passing-brightgreen)
+![Dependencies](https://img.shields.io/badge/core%20deps-zero-success)
+![MCP](https://img.shields.io/badge/protocol-MCP-8A2BE2)
+![License](https://img.shields.io/badge/license-Apache%202.0-lightgrey)
+
 > Anchor is *not* a chatbot or a thin RAG wrapper. It is a memory **engine**: a
 > principled model of how an agent's beliefs form, strengthen, conflict, age,
 > and get resolved over time — exposed over the Model Context Protocol so any
 > agent framework can use it.
+
+![Anchor demo — belief memory detecting a contradiction instead of overwriting](docs/assets/anchor-demo.svg)
 
 ---
 
@@ -50,12 +58,59 @@ probabilistic claims that evolve:
 
 ---
 
+## How it works
+
+Every observation flows through the same principled pipeline — screened,
+weighed, corroborated or contradicted, and recorded in a tamper-evident log:
+
+```mermaid
+flowchart TD
+    A["observe(subject, predicate, object)"] --> B{"security screen<br/>injection? trust cap?"}
+    B -->|clean| C["embed + match existing beliefs"]
+    B -->|suspicious| P["penalize trust"]
+    P --> C
+    C --> D{"matches a belief?"}
+    D -->|"same claim"| E["reinforce<br/>(add Bayesian evidence)"]
+    D -->|"conflicting claim"| F["flag Contradiction<br/>(NEVER overwrite)"]
+    D -->|"new claim"| G["create provisional belief"]
+    E --> H{"enough corroboration?"}
+    H -->|yes| I["promote → active"]
+    H -->|no| J["stay provisional"]
+    F --> K["human / strategy resolution"]
+    K --> L["winner active · loser superseded"]
+    I --> M["hash-chained audit event"]
+    G --> M
+    L --> M
+    M --> N["recall: relevance × reliability × recency"]
+```
+
+---
+
 ## Core concepts
 
 - **Belief** — the atomic memory unit: a `(subject, predicate, object)` claim
   with a *polarity*, a Bayesian confidence (Beta `alpha`/`beta`), a temporal
   validity window, provenance, and lifecycle status
   (`provisional → active → disputed → superseded/retracted`).
+
+Every belief moves through a well-defined lifecycle — it is **never silently
+overwritten**:
+
+```mermaid
+stateDiagram-v2
+    [*] --> provisional: observed (1 source)
+    provisional --> active: corroborated\n(≥ N sources)
+    provisional --> disputed: conflicting claim
+    active --> disputed: conflicting claim
+    disputed --> active: resolved (winner)
+    disputed --> superseded: resolved (loser kept for history)
+    active --> superseded: replaced by newer truth
+    active --> retracted: manually retracted
+    active --> active: reinforced / decayed
+    superseded --> [*]
+    retracted --> [*]
+```
+
 - **Reinforcement** — repeated corroboration adds *evidence* (`alpha`),
   increasing confidence; promotion to `active` can require multiple sources.
 - **Confidence** — the posterior mean of a Beta distribution; ranking uses a
@@ -147,6 +202,9 @@ See the full narrated walkthrough:
 ```bash
 python -m anchor.cli.app demo
 ```
+
+<!-- To showcase a live recording, drop a GIF at docs/assets/demo.gif and it will
+     render here:  ![Anchor live demo](docs/assets/demo.gif) -->
 
 ## MCP server
 
