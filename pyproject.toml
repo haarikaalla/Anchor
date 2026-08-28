@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anchor-memory"
+version = "0.1.0"
+description = "Anchor: persistent belief-memory infrastructure for AI agents with provenance, confidence, reinforcement, temporal reasoning, contradiction detection, decay and human confirmation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Anchor" }]
+keywords = ["memory", "agents", "llm", "mcp", "belief", "provenance", "rag"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# The core engine is intentionally dependency-free (pure stdlib) so it can be
+# embedded anywhere and remains framework-independent and deterministic in tests.
+dependencies = []
+
+[project.optional-dependencies]
+llm = ["openai>=1.0", "anthropic>=0.30"]
+mcp = ["mcp>=1.0"]
+cli = ["rich>=13.0"]
+mem0 = ["mem0ai>=0.1"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.5"]
+all = [
+    "openai>=1.0",
+    "anthropic>=0.30",
+    "mcp>=1.0",
+    "rich>=13.0",
+    "mem0ai>=0.1",
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+anchor = "anchor.cli.app:main"
+anchor-mcp = "anchor.mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["anchor*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
