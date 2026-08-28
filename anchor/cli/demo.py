@@ -12,7 +12,7 @@ import os
 import tempfile
 from typing import Any
 
-from ..config import AnchorConfig, DAY
+from ..config import DAY, AnchorConfig
 from ..core.engine import Anchor
 from ..core.models import SourceType
 
@@ -71,8 +71,8 @@ def run_demo(_ignored: Anchor | None = None, con: Any = None, namespace: str = "
     r = a.observe("user", "lives_in", "Munich", namespace=namespace,
                   source_type=SourceType.USER, source_id="chat", trust=0.95,
                   at=base + 30 * DAY)
-    con.print(f"New claim 'lives_in Munich' [red]conflicts[/red] with 'Berlin'. "
-              f"Anchor did [bold]not[/bold] overwrite — it flagged a contradiction.")
+    con.print("New claim 'lives_in Munich' [red]conflicts[/red] with 'Berlin'. "
+              "Anchor did [bold]not[/bold] overwrite — it flagged a contradiction.")
     _show_beliefs(a, con, namespace)
 
     cons = a.open_contradictions(namespace)

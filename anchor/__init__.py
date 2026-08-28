@@ -4,6 +4,7 @@ The public surface intentionally re-exports the high-level engine and the core
 data model so that integrations only need ``from anchor import Anchor``.
 """
 
+from .config import AnchorConfig
 from .core.engine import Anchor
 from .core.models import (
     AuditEvent,
@@ -16,20 +17,19 @@ from .core.models import (
     Provenance,
     SourceType,
 )
-from .config import AnchorConfig
 
 __all__ = [
     "Anchor",
     "AnchorConfig",
+    "AuditEvent",
     "Belief",
     "BeliefStatus",
-    "Polarity",
-    "Provenance",
-    "SourceType",
     "Contradiction",
     "ContradictionKind",
     "ContradictionStatus",
-    "AuditEvent",
+    "Polarity",
+    "Provenance",
+    "SourceType",
 ]
 
 __version__ = "0.1.0"

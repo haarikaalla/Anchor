@@ -43,7 +43,7 @@ def test_audit_chain_and_tamper_detection(tmp_path):
     assert s.verify_audit_chain("default") is True
 
     # Tamper with a payload directly in the DB and confirm detection.
-    with s._conn:  # noqa: SLF001 - deliberately corrupt to test integrity
+    with s._conn:
         s._conn.execute("UPDATE audit SET payload='{\"evil\":1}' WHERE seq=1")
     assert s.verify_audit_chain("default") is False
     s.close()

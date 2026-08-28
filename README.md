@@ -6,6 +6,7 @@ decay, and human-in-the-loop confirmation. Anchor never silently overwrites
 conflicting memories.
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
+![CI](https://github.com/haarikaalla/Anchor/actions/workflows/ci.yml/badge.svg)
 ![Tests](https://img.shields.io/badge/tests-47%20passing-brightgreen)
 ![Dependencies](https://img.shields.io/badge/core%20deps-zero-success)
 ![MCP](https://img.shields.io/badge/protocol-MCP-8A2BE2)

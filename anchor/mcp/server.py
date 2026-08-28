@@ -16,13 +16,13 @@ Requires the optional ``mcp`` dependency: ``pip install "anchor-memory[mcp]"``.
 from __future__ import annotations
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 from ..config import AnchorConfig
 from ..core.engine import Anchor
 
 
-def build_server(anchor: Optional[Anchor] = None):
+def build_server(anchor: Anchor | None = None):
     """Construct an MCP server bound to an Anchor instance.
 
     Supports both MCP SDK v1 (``FastMCP``) and v2 (``MCPServer``); the decorator
@@ -56,7 +56,7 @@ def build_server(anchor: Optional[Anchor] = None):
         agent_id: str = "",
         session_id: str = "",
         trust: float = 0.8,
-        tags: Optional[list[str]] = None,
+        tags: list[str] | None = None,
     ) -> dict[str, Any]:
         """Record a belief/observation. Conflicting claims are NOT overwritten;
         they surface as contradictions for later resolution. Returns the action

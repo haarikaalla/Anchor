@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any, Optional
+from typing import Any
 
 from ..config import AnchorConfig
 from ..core.engine import Anchor
@@ -224,9 +224,9 @@ def cmd_shell(args: argparse.Namespace, con: Console) -> None:
                     flag_args = shlex.split("--" + flags)
                 else:
                     query = rest
-            tokens = ["recall", query] + flag_args
+            tokens = ["recall", query, *flag_args]
         # Reuse the top-level parser; keep the shell's db/namespace as defaults.
-        argv = ["--db", args.db, "--namespace", args.namespace] + tokens
+        argv = ["--db", args.db, "--namespace", args.namespace, *tokens]
         try:
             sub_args = parser.parse_args(argv)
         except SystemExit:
@@ -249,7 +249,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     o = sub.add_parser("observe", help="record a belief")
-    o.add_argument("subject"); o.add_argument("predicate"); o.add_argument("object")
+    o.add_argument("subject")
+    o.add_argument("predicate")
+    o.add_argument("object")
     o.add_argument("--statement", default=None)
     o.add_argument("--polarity", default="positive", choices=["positive", "negative"])
     o.add_argument("--source-type", dest="source_type", default="user")
@@ -258,7 +260,8 @@ def build_parser() -> argparse.ArgumentParser:
     o.set_defaults(func=cmd_observe)
 
     r = sub.add_parser("recall", help="retrieve beliefs")
-    r.add_argument("query"); r.add_argument("--top-k", dest="top_k", type=int, default=5)
+    r.add_argument("query")
+    r.add_argument("--top-k", dest="top_k", type=int, default=5)
     r.set_defaults(func=cmd_recall)
 
     li = sub.add_parser("list", help="list beliefs")
@@ -298,7 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
     con = Console()

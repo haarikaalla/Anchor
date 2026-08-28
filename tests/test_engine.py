@@ -1,5 +1,5 @@
 from anchor.config import DAY
-from anchor.core.models import BeliefStatus, Polarity, SourceType
+from anchor.core.models import BeliefStatus, Polarity
 
 
 def test_create_then_promote_on_reinforcement(anchor):
@@ -27,8 +27,8 @@ def test_contradiction_is_not_overwritten(anchor):
 
 def test_resolution_newest_supersedes_old(anchor):
     anchor.observe("user", "lives_in", "Berlin", source_id="s1", trust=0.9, at=1000.0)
-    r = anchor.observe("user", "lives_in", "Munich", source_id="s2", trust=0.9,
-                       at=1000.0 + 10 * DAY)
+    anchor.observe("user", "lives_in", "Munich", source_id="s2", trust=0.9,
+                   at=1000.0 + 10 * DAY)
     con = anchor.open_contradictions()[0]
     resolved = anchor.resolve_contradiction(con.id, strategy="newest", actor="human")
     munich = next(b for b in anchor.list_beliefs(include_inactive=True)

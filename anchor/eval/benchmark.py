@@ -24,9 +24,9 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
-from ..config import AnchorConfig, DAY
+from ..config import DAY, AnchorConfig
 from ..core.engine import Anchor
 from .baselines import AnchorMemory, Fact, RAGMemory, SummaryMemory
 
@@ -119,7 +119,7 @@ def _score(memory, scenario: Scenario) -> dict[str, Any]:
 
 
 def run_benchmark(n_subjects: int = 30, seed: int = 7,
-                  db_path: Optional[str] = None) -> dict[str, Any]:
+                  db_path: str | None = None) -> dict[str, Any]:
     import os
     import tempfile
 

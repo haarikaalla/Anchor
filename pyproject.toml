@@ -54,3 +54,10 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+# A pragmatic, stable ruleset. BLE001 is ignored because Anchor deliberately
+# uses broad `except Exception` for graceful degradation around optional
+# dependencies (rich, mcp) and interactive-shell resilience.
+select = ["E", "F", "I", "UP", "SIM", "RUF"]
+ignore = ["BLE001", "RUF002", "RUF003"]

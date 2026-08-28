@@ -8,7 +8,7 @@ overridden via environment variables (prefix ``ANCHOR_``) or by constructing an
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -47,7 +47,9 @@ class AnchorConfig:
     # Evidence added per corroborating observation (scaled by source trust).
     reinforce_gain: float = field(default_factory=lambda: _env_float("ANCHOR_REINFORCE_GAIN", 1.0))
     # Evidence added to ``beta`` per contradicting observation.
-    contradict_gain: float = field(default_factory=lambda: _env_float("ANCHOR_CONTRADICT_GAIN", 1.0))
+    contradict_gain: float = field(
+        default_factory=lambda: _env_float("ANCHOR_CONTRADICT_GAIN", 1.0)
+    )
     # Confidence threshold to promote PROVISIONAL -> ACTIVE.
     promote_threshold: float = field(default_factory=lambda: _env_float("ANCHOR_PROMOTE", 0.66))
     # Confidence at/under which an ACTIVE belief is auto-retired.

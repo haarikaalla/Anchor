@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 def new_id(prefix: str) -> str:
@@ -91,7 +91,7 @@ class Provenance:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Provenance":
+    def from_dict(cls, d: dict[str, Any]) -> Provenance:
         d = dict(d)
         d["source_type"] = SourceType(d.get("source_type", "user"))
         return cls(**d)
@@ -121,7 +121,7 @@ class Belief:
     updated_at: float = field(default_factory=now)
     last_reinforced_at: float = field(default_factory=now)
     valid_from: float = field(default_factory=now)
-    valid_to: Optional[float] = None      # None => still valid
+    valid_to: float | None = None      # None => still valid
 
     reinforcement_count: int = 1
     contradiction_count: int = 0
@@ -154,15 +154,13 @@ class Belief:
     def evidence(self) -> float:
         return self.alpha + self.beta
 
-    def is_currently_valid(self, at: Optional[float] = None) -> bool:
+    def is_currently_valid(self, at: float | None = None) -> bool:
         at = now() if at is None else at
         if self.status in (BeliefStatus.RETRACTED, BeliefStatus.SUPERSEDED):
             return False
         if at < self.valid_from:
             return False
-        if self.valid_to is not None and at >= self.valid_to:
-            return False
-        return True
+        return not (self.valid_to is not None and at >= self.valid_to)
 
     # ------------------------------------------------------------ serialisation
     def to_dict(self) -> dict[str, Any]:
@@ -191,7 +189,7 @@ class Belief:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Belief":
+    def from_dict(cls, d: dict[str, Any]) -> Belief:
         return cls(
             id=d["id"],
             namespace=d.get("namespace", "default"),
@@ -231,7 +229,7 @@ class Contradiction:
     resolution: str = ""                     # human-readable outcome
     winner_id: str = ""                      # belief kept, if resolved
     resolved_by: str = ""
-    resolved_at: Optional[float] = None
+    resolved_at: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -241,7 +239,7 @@ class Contradiction:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Contradiction":
+    def from_dict(cls, d: dict[str, Any]) -> Contradiction:
         d = dict(d)
         d["kind"] = ContradictionKind(d.get("kind", "functional"))
         d["status"] = ContradictionStatus(d.get("status", "open"))
@@ -266,5 +264,5 @@ class AuditEvent:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "AuditEvent":
+    def from_dict(cls, d: dict[str, Any]) -> AuditEvent:
         return cls(**d)

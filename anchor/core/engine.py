@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from ..config import AnchorConfig
 from ..observability import Metrics, get_logger, log
@@ -47,7 +47,7 @@ class ObserveResult:
     action: str                      # created | reinforced | contradicted | coexists
     belief: Belief
     contradictions: list[Contradiction] = field(default_factory=list)
-    reinforced_id: Optional[str] = None
+    reinforced_id: str | None = None
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -77,10 +77,10 @@ class RecallItem:
 
 
 class Anchor:
-    def __init__(self, config: Optional[AnchorConfig] = None,
-                 store: Optional[SQLiteStore] = None,
-                 embedder: Optional[EmbeddingProvider] = None,
-                 predicate_registry: Optional[PredicateRegistry] = None):
+    def __init__(self, config: AnchorConfig | None = None,
+                 store: SQLiteStore | None = None,
+                 embedder: EmbeddingProvider | None = None,
+                 predicate_registry: PredicateRegistry | None = None):
         self.config = config or AnchorConfig()
         self.store = store or SQLiteStore(self.config.db_path)
         self.embedder = embedder or make_embedder(
@@ -131,19 +131,19 @@ class Anchor:
         predicate: str,
         object: str,
         *,
-        statement: Optional[str] = None,
+        statement: str | None = None,
         polarity: Polarity | str = Polarity.POSITIVE,
         namespace: str = "default",
         source_type: SourceType | str = SourceType.USER,
         source_id: str = "",
         agent_id: str = "",
         session_id: str = "",
-        trust: Optional[float] = None,
-        valid_from: Optional[float] = None,
-        valid_to: Optional[float] = None,
-        at: Optional[float] = None,
-        tags: Optional[list[str]] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        trust: float | None = None,
+        valid_from: float | None = None,
+        valid_to: float | None = None,
+        at: float | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ObserveResult:
         """Record an observation and reconcile it with existing memory.
 
@@ -266,7 +266,7 @@ class Anchor:
 
     def _apply_reinforcement(self, belief: Belief, prov: Provenance,
                              src_key: str, text: str,
-                             at: Optional[float] = None) -> ObserveResult:
+                             at: float | None = None) -> ObserveResult:
         ts = now() if at is None else at
         add = clamp_source_evidence(
             self.store.source_evidence(belief.id, src_key),
@@ -293,11 +293,11 @@ class Anchor:
                              notes=[f"confidence -> {belief.raw_confidence:.3f}"])
 
     # -------------------------------------------------------------------- reads
-    def get(self, belief_id: str) -> Optional[Belief]:
+    def get(self, belief_id: str) -> Belief | None:
         return self.store.get_belief(belief_id)
 
     def recall(self, query: str, *, namespace: str = "default", top_k: int = 5,
-               at_time: Optional[float] = None, include_disputed: bool = True,
+               at_time: float | None = None, include_disputed: bool = True,
                min_confidence: float = 0.0) -> list[RecallItem]:
         """Retrieve the most relevant *and reliable* currently-valid beliefs.
 
@@ -332,7 +332,7 @@ class Anchor:
         return self.store.all_beliefs(namespace, include_inactive=include_inactive)
 
     def current_belief(self, subject: str, predicate: str, *, namespace: str = "default",
-                       at: Optional[float] = None) -> Optional[Belief]:
+                       at: float | None = None) -> Belief | None:
         """Return the single best *currently-valid* belief for a claim slot.
 
         Prefers ACTIVE beliefs, breaks ties by confidence, and among equally
@@ -357,7 +357,7 @@ class Anchor:
         return self.store.contradictions(namespace, ContradictionStatus.OPEN)
 
     def resolve_contradiction(self, contradiction_id: str, *, strategy: str = "manual",
-                              winner_id: Optional[str] = None, actor: str = "human",
+                              winner_id: str | None = None, actor: str = "human",
                               note: str = "",
                               make_multi_valued: bool = False) -> Contradiction:
         """Resolve a contradiction. Strategies:
@@ -456,7 +456,7 @@ class Anchor:
 
     # -------------------------------------------------------------------- decay
     def apply_decay(self, namespace: str = "default",
-                    at_time: Optional[float] = None) -> dict[str, int]:
+                    at_time: float | None = None) -> dict[str, int]:
         """Age all beliefs: discount un-reinforced evidence toward the prior and
         auto-retire anything that has decayed below the retirement threshold.
         Idempotent-ish: decays relative to ``last_reinforced_at`` each call is
@@ -488,7 +488,7 @@ class Anchor:
         return changed
 
     # ------------------------------------------------------------- audit/metrics
-    def audit(self, namespace: str = "default", belief_id: Optional[str] = None,
+    def audit(self, namespace: str = "default", belief_id: str | None = None,
               limit: int = 200) -> list[AuditEvent]:
         return self.store.audit_log(namespace, belief_id, limit)
 

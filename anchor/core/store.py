@@ -19,9 +19,9 @@ import hashlib
 import json
 import sqlite3
 import threading
-from typing import Any, Iterable, Optional
+from collections.abc import Iterable
+from typing import Any
 
-from .confidence import confidence as _confidence
 from .models import AuditEvent, Belief, Contradiction, ContradictionStatus, now
 
 _SCHEMA = """
@@ -135,7 +135,7 @@ class SQLiteStore:
                 ),
             )
 
-    def get_belief(self, belief_id: str) -> Optional[Belief]:
+    def get_belief(self, belief_id: str) -> Belief | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT data FROM beliefs WHERE id=?", (belief_id,)
@@ -159,7 +159,7 @@ class SQLiteStore:
             rows = self._conn.execute(q, args).fetchall()
         return [Belief.from_dict(json.loads(r["data"])) for r in rows]
 
-    def iter_all(self, namespace: Optional[str] = None) -> Iterable[Belief]:
+    def iter_all(self, namespace: str | None = None) -> Iterable[Belief]:
         q = "SELECT data FROM beliefs"
         args: list[Any] = []
         if namespace is not None:
@@ -214,14 +214,14 @@ class SQLiteStore:
                  c.status.value, c.detected_at, _canonical(c.to_dict())),
             )
 
-    def get_contradiction(self, cid: str) -> Optional[Contradiction]:
+    def get_contradiction(self, cid: str) -> Contradiction | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT data FROM contradictions WHERE id=?", (cid,)
             ).fetchone()
         return Contradiction.from_dict(json.loads(row["data"])) if row else None
 
-    def open_contradiction_between(self, a: str, b: str) -> Optional[Contradiction]:
+    def open_contradiction_between(self, a: str, b: str) -> Contradiction | None:
         with self._lock:
             row = self._conn.execute(
                 """
@@ -235,7 +235,7 @@ class SQLiteStore:
         return Contradiction.from_dict(json.loads(row["data"])) if row else None
 
     def contradictions(self, namespace: str,
-                        status: Optional[ContradictionStatus] = None) -> list[Contradiction]:
+                        status: ContradictionStatus | None = None) -> list[Contradiction]:
         q = "SELECT data FROM contradictions WHERE namespace=?"
         args: list[Any] = [namespace]
         if status is not None:
@@ -278,7 +278,7 @@ class SQLiteStore:
             )
         return event
 
-    def audit_log(self, namespace: str, belief_id: Optional[str] = None,
+    def audit_log(self, namespace: str, belief_id: str | None = None,
                   limit: int = 200) -> list[AuditEvent]:
         q = "SELECT * FROM audit WHERE namespace=?"
         args: list[Any] = [namespace]

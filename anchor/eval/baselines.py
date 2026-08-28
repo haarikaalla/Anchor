@@ -16,8 +16,7 @@ All three memories implement the same tiny interface used by the harness:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from ..core.embeddings import LocalHashingEmbedder, cosine
 
@@ -43,7 +42,7 @@ class SummaryMemory:
     def ingest(self, f: Fact) -> None:
         self._kv[(f.subject, f.predicate)] = f.object
 
-    def answer(self, subject: str, predicate: str) -> Optional[str]:
+    def answer(self, subject: str, predicate: str) -> str | None:
         return self._kv.get((subject, predicate))
 
 
@@ -60,9 +59,9 @@ class RAGMemory:
         text = f"{f.subject} {f.predicate} {f.object}"
         self._items.append((self._emb.embed(text), f))
 
-    def answer(self, subject: str, predicate: str) -> Optional[str]:
+    def answer(self, subject: str, predicate: str) -> str | None:
         q = self._emb.embed(f"{subject} {predicate}")
-        best: Optional[Fact] = None
+        best: Fact | None = None
         best_sim = -1.0
         for vec, f in self._items:
             sim = cosine(q, vec)
@@ -93,6 +92,6 @@ class AnchorMemory:
         for con in self.a.open_contradictions(self.ns):
             self.a.resolve_contradiction(con.id, strategy="reliable", actor="policy")
 
-    def answer(self, subject: str, predicate: str) -> Optional[str]:
+    def answer(self, subject: str, predicate: str) -> str | None:
         b = self.a.current_belief(subject, predicate, namespace=self.ns)
         return b.object if b else None

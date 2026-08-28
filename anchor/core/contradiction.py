@@ -17,10 +17,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 from .embeddings import EmbeddingProvider, cosine
-from .models import Belief, ContradictionKind, Polarity
+from .models import Belief, ContradictionKind
 
 
 class Relation(str, Enum):
@@ -42,7 +41,7 @@ _DEFAULT_MULTI_VALUED = {
 class PredicateRegistry:
     """Tracks predicate cardinality. Callers may override defaults at runtime."""
 
-    def __init__(self, multi_valued: Optional[set[str]] = None):
+    def __init__(self, multi_valued: set[str] | None = None):
         self._multi = set(_DEFAULT_MULTI_VALUED)
         if multi_valued:
             self._multi |= {p.lower() for p in multi_valued}
@@ -61,7 +60,7 @@ class PredicateRegistry:
 class Finding:
     relation: Relation
     other: Belief
-    kind: Optional[ContradictionKind] = None
+    kind: ContradictionKind | None = None
     score: float = 0.0
     reason: str = ""
 
@@ -77,7 +76,7 @@ def _same_object(a: Belief, b: Belief, embedder: EmbeddingProvider,
 
 
 class ContradictionDetector:
-    def __init__(self, registry: Optional[PredicateRegistry] = None):
+    def __init__(self, registry: PredicateRegistry | None = None):
         self.registry = registry or PredicateRegistry()
 
     def classify(self, new: Belief, existing: Belief, embedder: EmbeddingProvider,

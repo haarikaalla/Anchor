@@ -18,9 +18,9 @@ def test_reinforce_increases_alpha_only():
 
 
 def test_reinforce_respects_trust_and_cap():
-    a, b = conf.reinforce(1.0, 1.0, gain=2.0, trust=0.5)
+    a, _b = conf.reinforce(1.0, 1.0, gain=2.0, trust=0.5)
     assert a == 2.0
-    a, b = conf.reinforce(1.0, 1.0, gain=10.0, trust=1.0, max_alpha=4.0)
+    a, _b = conf.reinforce(1.0, 1.0, gain=10.0, trust=1.0, max_alpha=4.0)
     assert a == 4.0
 
 
