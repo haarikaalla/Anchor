@@ -4,6 +4,8 @@
 
 ### Persistent belief-memory infrastructure for AI agents
 
+![Anchor — conventional memory overwrites and is silently wrong; Anchor keeps both claims and flags the contradiction](docs/assets/hero.svg)
+
 **Agents don't have a memory problem. They have a *truth* problem.**
 
 Anchor gives an agent beliefs that form, strengthen, conflict, age and get
@@ -12,13 +14,31 @@ tamper-evident audit trail. **It never silently overwrites what it knows.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/haarikaalla/Anchor/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/tests-107%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-111%20passing-brightgreen)
 ![Dependencies](https://img.shields.io/badge/core%20deps-zero-success)
 ![MCP](https://img.shields.io/badge/protocol-MCP-8A2BE2)
 ![Version](https://img.shields.io/badge/version-0.2.0-informational)
 ![License](https://img.shields.io/badge/license-Apache%202.0-lightgrey)
 
 </div>
+
+---
+
+## What makes this strong
+
+Not a wrapper around an LLM. A memory **engine** with the properties you'd
+demand of a system of record:
+
+| | |
+|---|---|
+| **Never loses truth** | A conflicting claim raises a contradiction; the old belief is *superseded*, never deleted. Every prior state is recoverable. |
+| **Resists poisoning** | Trust weighting, per-source evidence caps and conservative lower-bound ranking. **1.00 poison resistance** where overwrite memory scores 0.00. |
+| **Explains itself** | Every belief answers *why* — credible interval, per-source attribution, decay forecast, audit timeline. Reconstructed from the ledger, so it cannot drift. |
+| **Tamper-evident** | SHA-256 hash-chained audit log per namespace. `verify_audit()` detects any retroactive edit. |
+| **Time-aware** | Beliefs have validity windows; unconfirmed evidence decays on a half-life and faded beliefs auto-retire. |
+| **Zero core dependencies** | Engine, HTTP server, dashboard, knowledge graph and SVG renderer are **pure stdlib**. Fully offline, deterministic, reproducible. |
+| **Production surfaces** | REST + SSE + Prometheus, MCP server, CLI, live dashboard, and OpenAI/Anthropic/LangChain adapters. |
+| **Honest by construction** | 111 tests. Every README visual is generated from a live engine run — the hero banner *refuses to render* if the engine stops behaving as advertised. |
 
 ---
 

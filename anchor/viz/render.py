@@ -15,9 +15,10 @@ from typing import Any
 from ..config import DAY, AnchorConfig
 from ..core.engine import Anchor
 from .charts import Series, comparison_matrix, graph_chart, grouped_bars, timeline_chart
+from .hero import hero_banner
 from .terminal import TerminalCast
 
-ASSETS = ("anchor-demo.svg", "benchmark.svg", "confidence-timeline.svg",
+ASSETS = ("hero.svg", "anchor-demo.svg", "benchmark.svg", "confidence-timeline.svg",
           "belief-graph.svg", "capability-matrix.svg", "poisoning.svg")
 
 
@@ -229,6 +230,45 @@ def render_capability_matrix() -> str:
 
 
 # ------------------------------------------------------------------------ entry
+def render_hero() -> str:
+    """Run the poisoning scenario for real, then draw the hero banner from it."""
+    anchor, _ = _tmp_anchor(min_sources_for_active=2)
+    trusted = ("chat", "calendar", "hr_system")
+    for source in trusted:
+        anchor.observe("user", "lives_in", "Berlin", source_id=source, trust=0.9)
+
+    held = anchor.current_belief("user", "lives_in")
+
+    def _check(belief, stage: str):
+        """Refuse to continue unless Berlin is still standing.
+
+        The banner's entire claim is that a low-trust source cannot rewrite a
+        corroborated fact. If that ever stops being true, this must fail loudly
+        rather than keep advertising behaviour the engine no longer has.
+        """
+        if belief is None or belief.object != "Berlin":
+            raise RuntimeError(
+                f"hero scenario did not reproduce ({stage}): expected Berlin to "
+                f"survive, got {belief.object if belief else None!r}"
+            )
+        return belief
+
+    before = anchor.explain(_check(held, "before attack").id).confidence
+
+    result = anchor.observe("user", "lives_in", "Munich",
+                            source_id="scraper_bot", trust=0.25)
+    still_held = _check(anchor.current_belief("user", "lives_in"), "after attack")
+    if not result.contradictions:
+        raise RuntimeError("hero scenario did not reproduce: no contradiction raised")
+
+    return hero_banner(
+        conf_before=before,
+        conf_after=anchor.explain(still_held.id).confidence,
+        kind=result.contradictions[0].kind.value,
+        sources=len(trusted),
+    )
+
+
 def render_all(out_dir: str = "docs/assets", *, quiet: bool = False) -> list[str]:
     """Regenerate every asset. Returns the list of written paths."""
     from ..eval.benchmark import run_benchmark
@@ -236,6 +276,7 @@ def render_all(out_dir: str = "docs/assets", *, quiet: bool = False) -> list[str
     os.makedirs(out_dir, exist_ok=True)
     bench = run_benchmark()
     assets = {
+        "hero.svg": render_hero,
         "anchor-demo.svg": render_terminal_cast,
         "confidence-timeline.svg": render_confidence_timeline,
         "benchmark.svg": lambda: render_benchmark_chart(bench),

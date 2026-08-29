@@ -129,6 +129,50 @@ def test_confidence_timeline_rises_then_falls():
     assert "reinforced" in svg and "contradicted" in svg and "decay" in svg
 
 
+def test_hero_banner_is_well_formed_and_animated():
+    from anchor.viz.render import render_hero
+
+    svg = render_hero()
+    _parse(svg)
+    assert "@keyframes" in svg
+    assert "infinite" in svg          # the banner loops rather than playing once
+    assert "<script" not in svg       # inert: GitHub renders SVG with scripts disabled
+
+
+def test_hero_banner_tells_both_sides_of_the_story():
+    """The banner's whole claim is the contrast; neither half may go missing."""
+    from anchor.viz.render import render_hero
+
+    svg = render_hero()
+    assert "OVERWRITTEN" in svg              # what conventional memory does
+    assert "CONTRADICTION raised" in svg     # what Anchor does instead
+    assert "scraper_bot" in svg and "0.25" in svg
+
+
+def test_hero_banner_refuses_to_render_a_claim_the_engine_cannot_back(monkeypatch):
+    """If Anchor ever stopped holding its ground, the banner must fail loudly
+    rather than keep advertising behaviour the engine no longer has."""
+    import pytest
+
+    from anchor.core.engine import Anchor
+    from anchor.viz import render as render_mod
+
+    class _Fake:
+        object = "Munich"          # pretend the poisoning succeeded
+        id = "x"
+
+    monkeypatch.setattr(Anchor, "current_belief", lambda *a, **k: _Fake())
+    with pytest.raises(RuntimeError, match="hero scenario did not reproduce"):
+        render_mod.render_hero()
+
+
+def test_hero_banner_honours_reduced_motion():
+    """Animation must be opt-out for readers who ask the OS to stop motion."""
+    from anchor.viz.render import render_hero
+
+    assert "prefers-reduced-motion" in render_hero()
+
+
 def test_render_all_writes_every_asset(tmp_path):
     from anchor.viz.render import ASSETS, render_all
 

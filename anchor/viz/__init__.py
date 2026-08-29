@@ -6,6 +6,7 @@ hand-maintained set of screenshots.
 """
 
 from .charts import Series, comparison_matrix, graph_chart, grouped_bars, timeline_chart
+from .hero import hero_banner
 from .render import render_all
 from .terminal import TerminalCast
 
@@ -15,6 +16,7 @@ __all__ = [
     "comparison_matrix",
     "graph_chart",
     "grouped_bars",
+    "hero_banner",
     "render_all",
     "timeline_chart",
 ]
