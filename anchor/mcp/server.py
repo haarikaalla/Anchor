@@ -85,6 +85,30 @@ def build_server(anchor: Anchor | None = None):
                             engine.list_beliefs(namespace, include_inactive)]}
 
     @mcp.tool()
+    def anchor_current_belief(subject: str, predicate: str,
+                              namespace: str = "default") -> dict[str, Any]:
+        """Return what is currently believed about a subject/predicate slot,
+        or null if nothing is known. Use this before asserting a fact."""
+        belief = engine.current_belief(subject, predicate, namespace=namespace)
+        return {"belief": belief.to_dict() if belief else None}
+
+    @mcp.tool()
+    def anchor_explain(belief_id: str) -> dict[str, Any]:
+        """Explain WHY a belief is held: confidence and its credible interval,
+        per-source evidence attribution, decay projection, plain-English reasons
+        and the full audit timeline. Use this to justify an answer to a user."""
+        return engine.explain(belief_id).to_dict()
+
+    @mcp.tool()
+    def anchor_graph(namespace: str = "default", include_sources: bool = False,
+                     include_inactive: bool = False) -> dict[str, Any]:
+        """Return the belief knowledge graph (entities, relations,
+        contradiction edges) as nodes/edges plus a Mermaid rendering."""
+        g = engine.graph(namespace, include_inactive=include_inactive,
+                         include_sources=include_sources)
+        return {**g.to_dict(), "mermaid": g.to_mermaid()}
+
+    @mcp.tool()
     def anchor_open_contradictions(namespace: str = "default") -> dict[str, Any]:
         """List unresolved contradictions awaiting confirmation/resolution."""
         return {"contradictions": [c.to_dict() for c in

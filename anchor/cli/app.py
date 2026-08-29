@@ -154,6 +154,84 @@ def cmd_stats(args: argparse.Namespace, con: Console) -> None:
     con.print(json.dumps(a.stats(args.namespace), indent=2))
 
 
+def cmd_explain(args: argparse.Namespace, con: Console) -> None:
+    """Show the full justification for one belief."""
+    a = _anchor(args)
+    x = a.explain(args.id)
+    if args.json:
+        con.print(json.dumps(x.to_dict(), indent=2))
+        return
+
+    con.rule(x.belief.statement)
+    lo, hi = x.interval
+    con.print(f"[bold]confidence[/bold] {x.confidence:.3f}   "
+              f"[dim]lower bound[/dim] {x.lower_bound:.3f}   "
+              f"[dim]95% CI[/dim] {lo:.3f}–{hi:.3f}")
+    con.print(f"[dim]evidence[/dim] alpha={x.supporting:.2f} beta={x.contradicting:.2f}   "
+              f"[dim]status[/dim] {x.belief.status.value}   "
+              f"[dim]age[/dim] {x.age_days:.1f}d   "
+              f"[dim]stale[/dim] {x.staleness_days:.1f}d\n")
+
+    con.table("evidence by source",
+              ["source", "supporting", "contradicting", "share", "obs", "capped"],
+              [[s.source_id, f"{s.supporting:.2f}", f"{s.contradicting:.2f}",
+                f"{s.share:.0%}", s.observations, "yes" if s.capped else ""]
+               for s in x.sources])
+
+    con.print("\n[bold]why memory holds this[/bold]")
+    for reason in x.reasons:
+        con.print(f"  [cyan]•[/cyan] {reason}")
+
+    con.table("if never reinforced again", ["in days", "confidence"],
+              [[f"{d:.0f}", f"{c:.3f}"] for d, c in x.decay_projection])
+    con.table("audit timeline", ["ts", "event", "actor"],
+              [[f"{e.ts:.0f}", e.event_type, e.actor] for e in x.timeline])
+
+
+def cmd_graph(args: argparse.Namespace, con: Console) -> None:
+    """Export memory as a knowledge graph (mermaid, dot, json or svg)."""
+    a = _anchor(args)
+    g = a.graph(args.namespace, include_inactive=args.all,
+                include_sources=args.sources)
+    if args.format == "mermaid":
+        out = g.to_mermaid()
+    elif args.format == "dot":
+        out = g.to_dot()
+    elif args.format == "svg":
+        from ..viz.charts import graph_chart
+        out = graph_chart(g, f"Anchor memory — {args.namespace}",
+                          f"{len(g.nodes)} entities, {len(g.edges)} relations")
+    else:
+        out = json.dumps(g.layout().to_dict(), indent=2)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(out)
+        con.print(f"[green]wrote[/green] {args.output}")
+    else:
+        print(out)
+
+
+def cmd_serve(args: argparse.Namespace, con: Console) -> None:
+    """Run the live dashboard and REST API."""
+    from ..server.api import serve
+    serve(_anchor(args), host=args.host, port=args.port, namespace=args.namespace,
+          token=args.token, cors_origin=args.cors, open_browser=args.open,
+          verbose=args.verbose)
+
+
+def cmd_bench(args: argparse.Namespace, con: Console) -> None:
+    from ..eval.benchmark import main as bench_main
+    bench_main(args.json)
+
+
+def cmd_render_assets(args: argparse.Namespace, con: Console) -> None:
+    from ..viz.render import render_all
+    con.print("[dim]regenerating documentation assets from a live engine run…[/dim]")
+    written = render_all(args.out)
+    con.print(f"[green]wrote {len(written)} assets[/green] -> {args.out}")
+
+
 def cmd_demo(args: argparse.Namespace, con: Console) -> None:
     from .demo import run_demo
     run_demo(None, con, namespace=args.namespace)
@@ -168,6 +246,8 @@ Commands (same as the CLI, without the leading 'python -m anchor.cli.app'):
   list [--all]
   contradictions
   resolve <id> [--strategy newest]
+  explain <belief-id>
+  graph [--format mermaid]
   decay
   audit
   stats
@@ -232,7 +312,7 @@ def cmd_shell(args: argparse.Namespace, con: Console) -> None:
         except SystemExit:
             # argparse prints its own error/help; stay in the shell.
             continue
-        if getattr(sub_args, "func", None) in (cmd_shell, cmd_demo):
+        if getattr(sub_args, "func", None) in (cmd_shell, cmd_demo, cmd_serve):
             con.print("[yellow]not available inside the shell[/yellow]")
             continue
         try:
@@ -291,6 +371,37 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("stats", help="memory health metrics")
     st.set_defaults(func=cmd_stats)
+
+    ex = sub.add_parser("explain", help="explain why a belief is held")
+    ex.add_argument("id")
+    ex.add_argument("--json", action="store_true", help="emit raw JSON")
+    ex.set_defaults(func=cmd_explain)
+
+    gr = sub.add_parser("graph", help="export memory as a knowledge graph")
+    gr.add_argument("--format", default="mermaid",
+                    choices=["mermaid", "dot", "json", "svg"])
+    gr.add_argument("--output", "-o", default="", help="write to a file")
+    gr.add_argument("--all", action="store_true", help="include retired beliefs")
+    gr.add_argument("--sources", action="store_true", help="include provenance nodes")
+    gr.set_defaults(func=cmd_graph)
+
+    sv = sub.add_parser("serve", help="run the live dashboard + REST API")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8080)
+    sv.add_argument("--token", default="",
+                    help="require this bearer token (or set ANCHOR_API_TOKEN)")
+    sv.add_argument("--cors", default="", help="allowed CORS origin (off by default)")
+    sv.add_argument("--open", action="store_true", help="open a browser window")
+    sv.add_argument("--verbose", action="store_true", help="log every request")
+    sv.set_defaults(func=cmd_serve)
+
+    bm = sub.add_parser("bench", help="run the head-to-head memory benchmark")
+    bm.add_argument("--json", default="", help="also write raw results here")
+    bm.set_defaults(func=cmd_bench)
+
+    ra = sub.add_parser("render-assets", help="regenerate the docs/ visuals")
+    ra.add_argument("--out", default="docs/assets")
+    ra.set_defaults(func=cmd_render_assets)
 
     dm = sub.add_parser("demo", help="run the scripted showcase")
     dm.set_defaults(func=cmd_demo)
