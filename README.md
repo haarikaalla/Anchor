@@ -1,70 +1,246 @@
-# Anchor
+<div align="center">
 
-**Persistent belief-memory infrastructure for AI agents** — with provenance,
-Bayesian confidence, reinforcement, temporal reasoning, contradiction detection,
-decay, and human-in-the-loop confirmation. Anchor never silently overwrites
-conflicting memories.
+# ⚓ Anchor
+
+### Persistent belief-memory infrastructure for AI agents
+
+**Agents don't have a memory problem. They have a *truth* problem.**
+
+Anchor gives an agent beliefs that form, strengthen, conflict, age and get
+resolved — with provenance, Bayesian confidence, contradiction detection and a
+tamper-evident audit trail. **It never silently overwrites what it knows.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/haarikaalla/Anchor/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/tests-47%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-107%20passing-brightgreen)
 ![Dependencies](https://img.shields.io/badge/core%20deps-zero-success)
 ![MCP](https://img.shields.io/badge/protocol-MCP-8A2BE2)
+![Version](https://img.shields.io/badge/version-0.2.0-informational)
 ![License](https://img.shields.io/badge/license-Apache%202.0-lightgrey)
 
-> Anchor is *not* a chatbot or a thin RAG wrapper. It is a memory **engine**: a
-> principled model of how an agent's beliefs form, strengthen, conflict, age,
-> and get resolved over time — exposed over the Model Context Protocol so any
-> agent framework can use it.
-
-![Anchor demo — belief memory detecting a contradiction instead of overwriting](docs/assets/anchor-demo.svg)
+</div>
 
 ---
 
-## Why Anchor
+## The problem
 
-Most "agent memory" today is one of two things:
+Every agent that remembers things eventually hits some version of this:
 
-1. **Summary / key-value memory** that *overwrites* on update — it forgets
-   history and is trivially poisoned.
-2. **Vector RAG memory** that stores every utterance and retrieves by text
-   similarity — it has *no notion of truth, recency, or contradiction* and
-   happily returns stale or conflicting facts.
+> *The user said they moved to Munich. The agent kept booking flights to Berlin.*
+> *Or worse — a scraped page said "Munich", and the agent believed it over the user.*
 
-Anchor treats memory as a set of **beliefs** — structured, provenanced,
-probabilistic claims that evolve:
+Agent memory today is one of two broken things:
 
-| Capability | Summary | RAG | **Anchor** |
-|---|:--:|:--:|:--:|
-| Remembers history | ❌ | ✅ | ✅ |
-| Tracks *current truth* | ⚠️ | ❌ | ✅ |
-| Confidence & reinforcement | ❌ | ❌ | ✅ |
-| Temporal validity & decay | ❌ | ❌ | ✅ |
-| Contradiction detection | ❌ | ❌ | ✅ |
-| Human confirmation workflow | ❌ | ❌ | ✅ |
-| Provenance & tamper-evident audit | ❌ | ❌ | ✅ |
-| Memory-poisoning defenses | ❌ | ❌ | ✅ |
+| | What it does | How it fails |
+|---|---|---|
+| **Summary / key-value memory** | Overwrites the slot on update | Forgets history and is **trivially poisoned** — the last writer wins, even if it's an untrusted scraper |
+| **Vector RAG memory** | Stores every utterance, retrieves by similarity | **No notion of truth, recency or conflict** — returns "Berlin" and "Munich" side by side and lets the LLM guess |
 
-### Measured results (synthetic benchmark, `python -m anchor.eval.benchmark`)
+Both share one root cause: **they store *text*, not *beliefs*.** There is no
+representation of *how strongly* something is believed, *who said it*, *when it
+stopped being true*, or *what contradicts it*.
 
-30 memory slots, 200+ events, value updates + low-trust poisoning attacks:
+## The solution
 
-| memory | accuracy | update_acc | poison_resist |
-|---|:--:|:--:|:--:|
-| summary (overwrite) | 0.70 | 0.78 | 0.00 |
-| rag (vector) | 0.63 | 0.56 | 0.56 |
-| **anchor** | **1.00** | **1.00** | **1.00** |
+Anchor models memory the way a careful analyst does — as **beliefs**: structured,
+provenanced, probabilistic claims that evolve over time.
 
-(Deterministic, fully offline. Numbers reproduce via the command above.)
+When a new claim conflicts with an existing one, Anchor **does not overwrite it**.
+It raises a contradiction, keeps both, and asks:
 
-![Benchmark: Anchor vs summary vs RAG on accuracy, update accuracy and poison resistance](docs/assets/benchmark.svg)
+![Anchor demo — belief memory detecting a contradiction instead of overwriting](docs/assets/anchor-demo.svg)
+
+> Everything animated in this README is generated from a **live engine run** via
+> `anchor render-assets` — no mockups, no screen recordings. If the behaviour
+> changes, the visuals change with it.
+
+---
+
+## How it compares
+
+<div align="center">
+
+![Capability matrix — summary memory vs vector RAG vs Anchor](docs/assets/capability-matrix.svg)
+
+</div>
+
+---
+
+## Measured, not asserted
+
+Anchor ships its own adversarial benchmark: 30 memory slots, 201 events, 18
+mid-stream value changes, 9 low-trust poisoning attempts. Five memory strategies,
+same data, deterministic and fully offline.
+
+```bash
+python -m anchor.eval.benchmark        # or: anchor bench --json results.json
+```
+
+| memory | accuracy | update acc. | poison resist. | stale resist. |
+|---|:--:|:--:|:--:|:--:|
+| summary (overwrite) | 0.70 | 0.78 | **0.00** | 1.00 |
+| recency window | 0.70 | 0.78 | **0.00** | 1.00 |
+| trust vote | 0.33 | 0.17 | **0.11** | 0.33 |
+| rag (vector) | 0.63 | 0.56 | 0.56 | 0.61 |
+| **anchor** | **1.00** | **1.00** | **1.00** | **1.00** |
+
+![Benchmark — Anchor vs four baselines across four axes](docs/assets/benchmark.svg)
+
+**The interesting result isn't that Anchor wins — it's *how each baseline loses*.**
+They fail on *different* axes, and the fixes are mutually exclusive:
+
+- **Overwrite memory** is perfectly current and **completely defenceless** (0.00) —
+  the poisoner simply writes last.
+- **Trust voting** resists poisoning slightly, but majority-votes itself into stale
+  answers; it can barely accept a legitimate change (0.17 update accuracy).
+- **Vector RAG** is mediocre everywhere, because similarity search has no opinion
+  about truth.
+
+You cannot patch your way from any of these to correctness — freshness and
+poison-resistance pull in opposite directions. You need **evidence, provenance and
+corroboration as first-class state**. That is the entire thesis.
+
+> **On reading these numbers honestly:** this is a *synthetic* benchmark written
+> by the same author as the engine, with baselines implemented for comparison
+> rather than tuned to win. It is designed to demonstrate the structural tension
+> between freshness and poison-resistance — not to prove production performance on
+> real workloads. Every number reproduces offline via the command above, and the
+> harness is in [anchor/eval/](anchor/eval/) so you can disagree with it in code.
+
+![Poisoning resistance under sustained low-trust attack](docs/assets/poisoning.svg)
+
+---
+
+## Live control plane
+
+Anchor ships a **dependency-free HTTP API and real-time dashboard** — built on
+`http.server`, Server-Sent Events and a hand-written SVG renderer. No React, no
+build step, no `node_modules`.
+
+```bash
+anchor serve --open          # http://127.0.0.1:8080
+```
+
+A live operator console: belief table with confidence bars, animated knowledge
+graph, a **contradiction inbox** with one-click resolution strategies, a streaming
+audit feed, and a slide-out explainability drawer for any belief.
+
+```text
+GET  /                     dashboard (single self-contained HTML document)
+GET  /api/stats            memory health
+GET  /api/beliefs          current beliefs
+GET  /api/contradictions   the inbox
+GET  /api/recall?q=...     ranked retrieval
+GET  /api/explain/<id>     full explanation payload
+GET  /api/graph            knowledge graph (nodes + edges + layout)
+GET  /api/audit            hash-chained history
+GET  /api/events           Server-Sent Events — live stream
+GET  /metrics              Prometheus exposition format
+POST /api/observe · /api/resolve · /api/retract · /api/decay · /api/seed
+```
+
+**Security posture:** loopback-only by default, optional bearer token (compared in
+constant time), CORS off unless explicitly enabled, request body capped, strict
+`nosniff` / `DENY` / `no-referrer` headers, no filesystem serving — and the
+dashboard renders every value via `textContent`, so `innerHTML` and `eval` appear
+nowhere in it. There is a test that enforces exactly that.
+
+```bash
+ANCHOR_API_TOKEN=secret anchor serve --host 0.0.0.0 --token secret
+```
+
+The SSE stream is produced by tailing the **audit log**, not by hooking the engine
+— so it reflects committed state and works across processes.
+
+---
+
+## Explainability — *why* does the agent believe this?
+
+The most valuable thing a memory system can do is **defend its own answer**.
+
+```bash
+anchor explain <belief-id>
+```
+
+Real output from a run where three trusted sources say *Berlin* and one low-trust
+bot says *Munich*:
+
+```text
+──────────────────────── user lives_in Berlin ────────────────────────
+confidence 0.747   lower bound 0.519   95% CI 0.398–1.000
+evidence alpha=3.70 beta=1.25   status disputed   age 0.0d   stale 0.0d
+
+evidence by source
+  source       supporting  contradicting  share  obs  capped
+  calendar           0.90           0.00    33%    1
+  chat               0.90           0.00    33%    1
+  hr_system          0.90           0.00    33%    1
+  rumour_bot         0.00           0.25     0%    1
+
+why memory holds this
+  • Corroborated by 3 independent sources (calendar, chat, hr_system).
+  • Reinforced 3 times without being refuted.
+  • Challenged by 1 source(s) (rumour_bot); 1 contradiction(s) recorded.
+  • Disputed: a conflicting claim is open and awaiting resolution.
+  • Ranking uses the conservative lower bound 0.519 rather than the mean
+    0.747, so thinly-supported claims cannot outrank well-corroborated ones.
+
+if never reinforced again        audit timeline
+  in days   confidence             created
+        0        0.747             promoted
+        7        0.731             reinforced
+       30        0.676             reinforced
+       90        0.565
+      180        0.509
+```
+
+Note what the low-trust bot actually achieved: it nudged confidence from 0.787 to
+0.747, flipped the status to `disputed`, and opened a contradiction for review. It
+did **not** change the answer. That is the whole point.
+
+Explanations are a **read-only projection** — reconstructed from the evidence
+ledger and audit chain on every call, so they can never drift from what the engine
+actually did. Available in Python (`mem.explain(id)`), over REST, over MCP, and in
+the dashboard drawer.
+
+---
+
+## Knowledge graph
+
+Beliefs aren't isolated rows — they form a graph. Anchor projects them into a
+confidence-weighted graph with **contradiction edges rendered as live pulsing
+links**, laid out by a deterministic seeded force-directed algorithm.
+
+![Belief knowledge graph with a live contradiction edge](docs/assets/belief-graph.svg)
+
+```bash
+anchor graph --format mermaid        # paste straight into docs
+anchor graph --format dot -o g.dot   # Graphviz
+anchor graph --format svg -o g.svg   # animated, self-contained
+anchor graph --format json           # feed your own UI
+```
+
+---
+
+## Confidence is earned, and lost
+
+A belief's confidence is the posterior mean of a Beta distribution. Corroboration
+raises it, contradiction lowers it, and **silence decays it** — a fact nobody has
+confirmed in six months deserves less trust than one confirmed today.
+
+![Confidence over time — observed, reinforced, contradicted, then decayed](docs/assets/confidence-timeline.svg)
+
+Ranking never uses the mean. It uses a **conservative lower bound** (~10th
+percentile), so a claim corroborated by four sources beats a claim asserted once,
+loudly. That, together with trust weighting, per-source evidence caps and the
+refusal to overwrite on conflict, is what produces the poison resistance above.
 
 ---
 
 ## How it works
 
-Every observation flows through the same principled pipeline — screened,
-weighed, corroborated or contradicted, and recorded in a tamper-evident log:
+Every observation flows through the same pipeline — screened, weighed,
+corroborated or contradicted, and recorded in a tamper-evident log:
 
 ```mermaid
 flowchart TD
@@ -87,17 +263,8 @@ flowchart TD
     M --> N["recall: relevance × reliability × recency"]
 ```
 
----
-
-## Core concepts
-
-- **Belief** — the atomic memory unit: a `(subject, predicate, object)` claim
-  with a *polarity*, a Bayesian confidence (Beta `alpha`/`beta`), a temporal
-  validity window, provenance, and lifecycle status
-  (`provisional → active → disputed → superseded/retracted`).
-
-Every belief moves through a well-defined lifecycle — it is **never silently
-overwritten**:
+Every belief moves through a well-defined lifecycle. It is **never silently
+overwritten** — losers are *superseded*, not deleted:
 
 ```mermaid
 stateDiagram-v2
@@ -114,11 +281,88 @@ stateDiagram-v2
     retracted --> [*]
 ```
 
-Confidence is *earned and lost* — here is a real belief's trajectory from the
-demo (reinforcement lifts it, a contradiction and later decay lower it):
+---
 
-![Confidence over time — a belief reinforced, contradicted, and decayed](docs/assets/confidence-timeline.svg)
+## Install
 
+```bash
+pip install -e .              # core engine (pure stdlib, zero deps)
+pip install -e ".[cli]"       # + rich CLI tables
+pip install -e ".[mcp]"       # + MCP server
+pip install -e ".[langchain]" # + LangChain tool adapters
+pip install -e ".[llm]"       # + OpenAI/Anthropic embeddings
+pip install -e ".[dev]"       # + pytest/ruff
+```
+
+The **core engine, HTTP server, dashboard, knowledge graph and SVG renderer have
+zero third-party dependencies** and run fully offline on a deterministic local
+embedding — so tests, demos and benchmarks reproduce anywhere, byte for byte.
+
+## Quickstart
+
+```python
+from anchor import Anchor
+
+mem = Anchor()
+
+mem.observe("user", "lives_in", "Berlin", source_id="chat", trust=0.9)
+mem.observe("user", "lives_in", "Berlin", source_id="calendar", trust=0.9)  # → active
+
+r = mem.observe("user", "lives_in", "Munich", source_id="chat", trust=0.95)
+print(r.action)                       # "contradicted"  — NOT overwritten
+
+con = mem.open_contradictions()[0]
+mem.resolve_contradiction(con.id, strategy="newest", actor="human")
+
+belief = mem.current_belief("user", "lives_in")
+print(belief.object)                  # "Munich"
+print(mem.explain(belief.id).summary) # why it is believed, and how strongly
+print(mem.verify_audit())             # True — tamper-evident
+```
+
+## Drop it into your agent
+
+`AnchorToolkit` emits ready-made tool schemas for OpenAI, Anthropic and LangChain,
+and dispatches the calls for you:
+
+```python
+from anchor import Anchor
+from anchor.adapters import AnchorToolkit
+
+kit = AnchorToolkit(Anchor(), namespace="user-42")
+
+resp = openai.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "system", "content": kit.SYSTEM_PROMPT}, *messages],
+    tools=kit.openai_tools(),      # or kit.anthropic_tools() / kit.langchain_tools()
+)
+
+for call in resp.choices[0].message.tool_calls:
+    result = kit.dispatch(call.function.name, call.function.arguments)
+```
+
+The toolkit returns **guidance alongside every result**, so the model knows what to
+do with a conflict instead of hallucinating past it:
+
+```json
+{
+  "action": "contradicted",
+  "guidance": "Conflicts with an existing belief. Nothing was overwritten;
+               ask the user which is true, then call anchor_resolve_contradiction."
+}
+```
+
+Pass `allow_writes=False` for a read-only toolkit when you don't want the model
+mutating memory.
+
+---
+
+## Core concepts
+
+- **Belief** — the atomic memory unit: a `(subject, predicate, object)` claim
+  with a *polarity*, a Bayesian confidence (Beta `alpha`/`beta`), a temporal
+  validity window, provenance, and lifecycle status
+  (`provisional → active → disputed → superseded/retracted`).
 - **Reinforcement** — repeated corroboration adds *evidence* (`alpha`),
   increasing confidence; promotion to `active` can require multiple sources.
 - **Confidence** — the posterior mean of a Beta distribution; ranking uses a
@@ -133,6 +377,9 @@ demo (reinforcement lifts it, a contradiction and later decay lower it):
 - **Resolution** — strategies: `keep_new`, `keep_existing`, `highest_confidence`,
   `newest`, `reliable` (confidence-lower-bound × recency; poisoning-robust),
   `keep_both`, or `manual`. Losers are *superseded*, not deleted.
+- **Explanation** — a reconstructed projection: credible interval, per-source
+  attribution, decay projection and audit timeline.
+  See [anchor/core/explain.py](anchor/core/explain.py).
 - **Provenance & audit** — every change emits a **hash-chained, tamper-evident**
   audit event. See [anchor/core/store.py](anchor/core/store.py).
 - **Security** — input hygiene + prompt-injection screening, provenance-weighted
@@ -141,51 +388,21 @@ demo (reinforcement lifts it, a contradiction and later decay lower it):
 
 ---
 
-## Install
-
-```bash
-pip install -e .              # core engine (pure stdlib, zero deps)
-pip install -e ".[cli]"       # + rich CLI tables
-pip install -e ".[mcp]"       # + MCP server
-pip install -e ".[llm]"       # + OpenAI/Anthropic embeddings
-pip install -e ".[dev]"       # + pytest/ruff
-```
-
-The **core engine has no third-party dependencies** and runs fully offline using
-a deterministic local embedding, so tests and demos are reproducible anywhere.
-
-## Quickstart (Python)
-
-```python
-from anchor import Anchor
-
-mem = Anchor()
-
-mem.observe("user", "lives_in", "Berlin", source_id="chat", trust=0.9)
-mem.observe("user", "lives_in", "Berlin", source_id="calendar", trust=0.9)  # reinforced -> active
-
-r = mem.observe("user", "lives_in", "Munich", source_id="chat", trust=0.95)
-print(r.action)                       # "contradicted"  (NOT overwritten)
-
-con = mem.open_contradictions()[0]
-mem.resolve_contradiction(con.id, strategy="newest", actor="human")
-
-print(mem.current_belief("user", "lives_in").object)   # "Munich"
-print(mem.verify_audit())             # True  (tamper-evident)
-```
-
 ## CLI
 
 ```bash
 anchor demo                                   # scripted, animated showcase
 anchor shell                                  # interactive REPL: type facts & questions
+anchor serve --open                           # live dashboard + REST API
 anchor observe user lives_in Berlin --trust 0.9
 anchor recall "where does the user live?"
+anchor explain <belief-id>                    # why is this believed?
+anchor graph --format mermaid                 # knowledge graph
 anchor contradictions
 anchor resolve <id> --strategy reliable
-anchor decay
-anchor audit
-anchor stats
+anchor bench --json results.json              # run the benchmark
+anchor render-assets                          # regenerate every animated SVG
+anchor decay · anchor audit · anchor stats
 ```
 
 ### Interactive shell
@@ -205,24 +422,15 @@ anchor> quit
 Inside the shell, `recall` accepts a free-form question without quotes. Type
 `help` for the full command list.
 
-See the full narrated walkthrough:
-
-```bash
-python -m anchor.cli.app demo
-```
-
-<!-- To showcase a live recording, drop a GIF at docs/assets/demo.gif and it will
-     render here:  ![Anchor live demo](docs/assets/demo.gif) -->
-
 ## MCP server
 
-Expose Anchor to LangGraph / CrewAI / AutoGen / custom agents:
+Expose Anchor to LangGraph / CrewAI / AutoGen / Claude Desktop / any MCP host:
 
 ```bash
 anchor-mcp            # stdio transport
 ```
 
-Example client config (Claude Desktop / any MCP host):
+Example client config:
 
 ```json
 {
@@ -235,7 +443,8 @@ Example client config (Claude Desktop / any MCP host):
 }
 ```
 
-Tools exposed: `anchor_observe`, `anchor_recall`, `anchor_list_beliefs`,
+Tools exposed: `anchor_observe`, `anchor_recall`, `anchor_current_belief`,
+`anchor_explain`, `anchor_graph`, `anchor_list_beliefs`,
 `anchor_open_contradictions`, `anchor_resolve_contradiction`, `anchor_retract`,
 `anchor_apply_decay`, `anchor_audit`, `anchor_stats`. See
 [anchor/mcp/server.py](anchor/mcp/server.py).
@@ -255,13 +464,20 @@ anchor/
     models.py         # Belief, Provenance, Contradiction, AuditEvent
     confidence.py     # Bayesian reinforcement / decay / lower bound
     contradiction.py  # relationship taxonomy + predicate cardinality
+    explain.py        # read-only explanation projection
+    graph.py          # belief -> knowledge graph + force-directed layout
     embeddings.py     # local (offline) + OpenAI providers
     security.py       # injection screening + evidence caps
     store.py          # SQLite + hash-chained audit (Postgres-ready SQL)
     engine.py         # the Anchor orchestrator (framework-independent)
+  server/
+    api.py            # stdlib HTTP API, SSE bus, Prometheus metrics
+    dashboard.py      # self-contained live operator console
+  viz/                # animated SVG generation (terminal casts, charts, graphs)
+  adapters/           # OpenAI / Anthropic / LangChain tool schemas
   mcp/server.py       # Model Context Protocol server
   cli/                # rich CLI + scripted demo
-  eval/               # benchmark vs summary/RAG baselines
+  eval/               # benchmark vs four baselines
   observability.py    # JSON logging + metrics
 ```
 
@@ -270,12 +486,15 @@ More detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Tests
 
 ```bash
-python -m pytest -q
+python -m pytest -q        # 107 tests
+ruff check .
 ```
 
-47 tests cover confidence math, storage & audit tamper-detection, contradiction
-logic, security defenses, temporal decay, the engine lifecycle, and the
-evaluation harness.
+Covering confidence math, storage and **audit tamper-detection**, contradiction
+logic, security defenses, temporal decay, the engine lifecycle, explanations,
+graph projection, the HTTP API (including auth, body limits and XSS-safety of the
+dashboard), SVG well-formedness and escaping, tool adapters, and the evaluation
+harness.
 
 ## Design principles
 
@@ -283,8 +502,14 @@ evaluation harness.
 2. **Confidence is earned** — Bayesian evidence, corroboration, and trust.
 3. **Memory is time-aware** — validity windows, decay, recency.
 4. **Everything is auditable** — hash-chained provenance.
-5. **The core is framework-independent** — SQLite + stdlib; integrations are thin.
+5. **Every answer is explainable** — reconstructed, never narrated.
+6. **The core is framework-independent** — SQLite + stdlib; integrations are thin.
 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+<div align="center">
+<sub>Built as an exploration of what agent memory should look like when you treat
+truth as a first-class concern.</sub>
+</div>

@@ -114,15 +114,70 @@ The **audit log is append-only and hash-chained per namespace**:
 the chain and detects any tampering — giving cryptographic provenance over how a
 belief came to be.
 
-## 8. Observability
+## 8. Explainability
+
+`core/explain.py` is a **read-only projection**. It never stores anything: given a
+belief, it folds the evidence ledger (`store.source_evidence_breakdown`) and the
+audit trail back into a structured `Explanation` — a Beta credible interval,
+per-source attribution (with a `capped` flag when a source hit its evidence
+ceiling), a decay projection at 0/7/30/90/180 days, a chronological timeline, and
+plain-English reasons.
+
+Because it is reconstructed on every call rather than narrated at write time, an
+explanation cannot drift from what the engine actually did. If the maths changes,
+the explanation changes with it.
+
+## 9. Knowledge graph
+
+`core/graph.py` projects beliefs into a graph: entity nodes (`e:{label}`),
+optional source nodes (`s:{name}`), belief edges weighted by confidence, and
+`contradiction` edges between conflicting claims. Layout uses a deterministic
+seeded Fruchterman-Reingold implementation, so the same beliefs always render
+identically — which is what makes the generated SVG assets diffable.
+
+Exports: Mermaid, Graphviz DOT, JSON, and animated SVG.
+
+## 10. Control plane
+
+`server/api.py` is a `ThreadingHTTPServer` on the stdlib only — REST endpoints, a
+Server-Sent Events stream, and a Prometheus `/metrics` endpoint.
+
+The SSE bus works by **tailing the audit log** (`store.audit_after`) rather than
+hooking the engine. That choice means the stream reflects only committed state and
+works across processes — a CLI `observe` in one terminal appears live in a
+dashboard served by another.
+
+Security: loopback binding by default, optional bearer token compared with
+`hmac.compare_digest`, CORS disabled unless explicitly configured, a request body
+cap, strict `nosniff`/`DENY`/`no-referrer` headers, and no filesystem serving.
+`server/dashboard.py` is a single self-contained HTML document that renders all
+data through `textContent`; `innerHTML` and `eval` appear nowhere, enforced by a
+test.
+
+## 11. Documentation as a build artifact
+
+`viz/` renders animated SVG (CSS `@keyframes`, no JavaScript) from **live engine
+runs** — terminal casts, charts, graphs and the capability matrix. `anchor
+render-assets` regenerates all of them.
+
+Animated SVG was chosen over recorded GIF deliberately: it is kilobytes rather
+than megabytes, crisp at any zoom, diffable as text in git, requires no recording
+tool in CI, and is inert (no scripting). Because the visuals are generated from
+real runs, documentation cannot silently drift from behaviour.
+
+## 12. Observability
 
 `observability.py` provides JSON-line logging and in-process counters/gauges/
 timers surfaced via `Anchor.stats()` — enough to wire into Prometheus/OpenTelemetry
 without adding dependencies to the core.
 
-## 9. Integration surface
+## 13. Integration surface
 
 - **MCP** (`anchor/mcp/server.py`) exposes the engine as MCP tools for any host.
+- **HTTP** (`anchor/server/`) — REST + SSE + Prometheus, `anchor serve`.
+- **Tool adapters** (`anchor/adapters/`) — `AnchorToolkit` emits OpenAI, Anthropic
+  and LangChain tool schemas and dispatches calls, returning `guidance` alongside
+  results so a model knows to *ask* rather than guess when a contradiction opens.
 - **Python** — `from anchor import Anchor`.
 - The engine is intentionally framework-independent; LangGraph/CrewAI/AutoGen
   integrations are thin adapters over `observe` / `recall` / `current_belief`.
