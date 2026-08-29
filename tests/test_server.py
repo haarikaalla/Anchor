@@ -176,13 +176,21 @@ def test_bearer_token_guards_the_api(anchor):
 
 
 def test_oversized_body_is_rejected(server):
+    """An oversized upload must get a real 413 back, not a reset connection.
+
+    The server has to drain the in-flight body before replying; otherwise the
+    client is still writing when the response lands and never reads the status.
+    """
     payload = json.dumps({"subject": "x" * 400_000, "predicate": "p", "object": "o"})
     req = urllib.request.Request(server + "/api/observe", data=payload.encode(),
                                  headers={"Content-Type": "application/json"},
                                  method="POST")
     with pytest.raises(urllib.error.HTTPError) as exc:
         urllib.request.urlopen(req, timeout=5)
-    assert exc.value.code == 400
+    assert exc.value.code == 413
+
+    # The server must survive the refusal and keep serving.
+    assert _get(server, "/api/stats")[0] == 200
 
 
 def test_event_bus_publishes_audit_events(anchor):

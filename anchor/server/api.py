@@ -39,6 +39,17 @@ from ..core.engine import Anchor
 from .dashboard import DASHBOARD_HTML
 
 MAX_BODY_BYTES = 256 * 1024
+
+# When rejecting an oversized upload we drain a bounded amount of the pending
+# body before closing. Without this the client is still writing when we reply,
+# the socket resets, and it never gets to read the status code we sent. The
+# bound keeps that courtesy from becoming a way to make us read forever.
+_DRAIN_LIMIT = MAX_BODY_BYTES
+_DRAIN_CHUNK = 64 * 1024
+
+
+class PayloadTooLarge(ValueError):
+    """Raised when a request body exceeds :data:`MAX_BODY_BYTES`."""
 _SSE_KEEPALIVE = 15.0
 
 
@@ -193,12 +204,24 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
         if length <= 0:
             return {}
         if length > MAX_BODY_BYTES:
-            raise ValueError("request body too large")
+            raise PayloadTooLarge(
+                f"request body too large ({length} bytes, limit {MAX_BODY_BYTES})"
+            )
         raw = self.rfile.read(length)
         data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, dict):
             raise ValueError("body must be a JSON object")
         return data
+
+    def _drain(self, length: int) -> None:
+        """Consume up to ``_DRAIN_LIMIT`` bytes of a body we are refusing."""
+        remaining = min(length, _DRAIN_LIMIT)
+        with suppress(OSError):
+            while remaining > 0:
+                chunk = self.rfile.read(min(_DRAIN_CHUNK, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
 
     @staticmethod
     def _one(params: dict[str, list[str]], key: str, default: str = "") -> str:
@@ -319,6 +342,12 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
         try:
             body = self._body()
             return self._route_post(path, body)
+        except PayloadTooLarge as exc:
+            # Drain what we can, then close: the client is mid-write, and
+            # replying without draining resets the socket before it can read.
+            self._drain(int(self.headers.get("Content-Length") or 0))
+            self.close_connection = True
+            return self._error(413, str(exc))
         except KeyError as exc:
             return self._error(404, str(exc))
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
