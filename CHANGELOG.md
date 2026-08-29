@@ -6,6 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Adversarial sweep for the benchmark** (`anchor bench --sweep`,
+  `run_sweep()`): varies the scenario seed, the attacker's trust and the number
+  of attacker identities, and ablates the benchmark's tuned config one knob at a
+  time. `generate_scenario` takes `attacker_trust` and `attacker_identities` so
+  the threat model is a parameter rather than a hardcoded assumption.
+
+### Changed
+- **The headline 1.00 poison-resistance result is now reported with its limits.**
+  The sweep shows the result is stable across scenario seeds, but that it rests
+  entirely on `max_source_evidence` and on the attacker being a single,
+  already-low-trust source. Poison resistance falls to 0.56 with two attacker
+  identities and 0.00 once the attacker's trust reaches parity with legitimate
+  sources. The README now states this in a "Where this breaks" section instead of
+  presenting 1.00 unqualified.
+
+### Known limitations
+- **No Sybil defence.** The evidence cap is per source and identities are free,
+  so corroboration is not discounted by source correlation.
+- **Trust is an input, not an inference.** Source reliability is not learned from
+  contradiction history.
+- These are pinned by tests in `tests/test_eval.py`, so fixing one fails the
+  suite and forces the documentation to be updated.
+
 ## [0.2.0]
 
 ### Added

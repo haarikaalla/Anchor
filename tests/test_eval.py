@@ -1,4 +1,5 @@
 from anchor.eval import generate_scenario, run_benchmark
+from anchor.eval.benchmark import _anchor_only
 
 
 def test_scenario_is_deterministic():
@@ -18,3 +19,40 @@ def test_anchor_beats_baselines(tmp_path):
     assert anchor >= rag
     # Anchor must resist poisoning strictly better than last-write-wins.
     assert res["anchor"]["poison_resistance"] > res["summary(overwrite)"]["poison_resistance"]
+
+
+def test_headline_result_is_not_a_cherry_picked_seed():
+    """The 1.00 in the README must hold for scenarios we did not choose."""
+    for seed in (7, 13, 42, 99, 1234):
+        r = _anchor_only(generate_scenario(n_subjects=30, seed=seed))
+        assert r["poison_resistance"] == 1.0, f"seed {seed} regressed: {r}"
+
+
+def test_poison_resistance_depends_on_the_attacker_being_low_trust():
+    """Pin a documented limitation: the defence needs a trust asymmetry.
+
+    The headline number describes a *low-trust* attacker. Once the attacker is
+    trusted as much as the legitimate sources, a newer claim legitimately wins
+    and poison resistance goes to zero. If this ever starts passing at high
+    trust, the README claim has become stronger and should be updated.
+    """
+    weak = _anchor_only(generate_scenario(attacker_trust=0.25))
+    strong = _anchor_only(generate_scenario(attacker_trust=0.9))
+    assert weak["poison_resistance"] == 1.0
+    assert strong["poison_resistance"] < weak["poison_resistance"]
+
+
+def test_evidence_cap_is_per_source_so_sybil_attacks_degrade_it():
+    """Pin the Sybil gap: N identities buy N times the per-source evidence cap."""
+    single = _anchor_only(generate_scenario(attacker_identities=1))
+    sybil = _anchor_only(generate_scenario(attacker_identities=10))
+    assert single["poison_resistance"] == 1.0
+    assert sybil["poison_resistance"] < single["poison_resistance"]
+
+
+def test_the_evidence_cap_is_what_carries_the_headline_result():
+    """Ablation: the other two tuned knobs are decorative on this scenario."""
+    scenario = generate_scenario(seed=7)
+    assert _anchor_only(scenario)["poison_resistance"] == 1.0
+    uncapped = _anchor_only(scenario, max_source_evidence=5.0)
+    assert uncapped["poison_resistance"] < 1.0

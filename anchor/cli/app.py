@@ -222,7 +222,7 @@ def cmd_serve(args: argparse.Namespace, con: Console) -> None:
 
 def cmd_bench(args: argparse.Namespace, con: Console) -> None:
     from ..eval.benchmark import main as bench_main
-    bench_main(args.json)
+    bench_main(args.json, sweep=args.sweep)
 
 
 def cmd_render_assets(args: argparse.Namespace, con: Console) -> None:
@@ -397,6 +397,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     bm = sub.add_parser("bench", help="run the head-to-head memory benchmark")
     bm.add_argument("--json", default="", help="also write raw results here")
+    bm.add_argument("--sweep", action="store_true",
+                    help="also probe where Anchor's poison resistance breaks")
     bm.set_defaults(func=cmd_bench)
 
     ra = sub.add_parser("render-assets", help="regenerate the docs/ visuals")

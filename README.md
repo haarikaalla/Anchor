@@ -14,7 +14,7 @@ tamper-evident audit trail. **It never silently overwrites what it knows.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/haarikaalla/Anchor/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/tests-111%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-115%20passing-brightgreen)
 ![Dependencies](https://img.shields.io/badge/core%20deps-zero-success)
 ![MCP](https://img.shields.io/badge/protocol-MCP-8A2BE2)
 ![Version](https://img.shields.io/badge/version-0.2.0-informational)
@@ -32,13 +32,13 @@ demand of a system of record:
 | | |
 |---|---|
 | **Never loses truth** | A conflicting claim raises a contradiction; the old belief is *superseded*, never deleted. Every prior state is recoverable. |
-| **Resists poisoning** | Trust weighting, per-source evidence caps and conservative lower-bound ranking. **1.00 poison resistance** where overwrite memory scores 0.00. |
+| **Resists poisoning** | Trust weighting, per-source evidence caps and conservative lower-bound ranking. **1.00 poison resistance** against a repeated low-trust source, where overwrite memory scores 0.00 — [with the limits measured, not hidden](#where-this-breaks). |
 | **Explains itself** | Every belief answers *why* — credible interval, per-source attribution, decay forecast, audit timeline. Reconstructed from the ledger, so it cannot drift. |
 | **Tamper-evident** | SHA-256 hash-chained audit log per namespace. `verify_audit()` detects any retroactive edit. |
 | **Time-aware** | Beliefs have validity windows; unconfirmed evidence decays on a half-life and faded beliefs auto-retire. |
 | **Zero core dependencies** | Engine, HTTP server, dashboard, knowledge graph and SVG renderer are **pure stdlib**. Fully offline, deterministic, reproducible. |
 | **Production surfaces** | REST + SSE + Prometheus, MCP server, CLI, live dashboard, and OpenAI/Anthropic/LangChain adapters. |
-| **Honest by construction** | 111 tests. Every README visual is generated from a live engine run — the hero banner *refuses to render* if the engine stops behaving as advertised. |
+| **Honest by construction** | 115 tests. Every README visual is generated from a live engine run — the hero banner *refuses to render* if the engine stops behaving as advertised, and the benchmark ships the sweep that finds its own weaknesses. |
 
 ---
 
@@ -89,7 +89,7 @@ It raises a contradiction, keeps both, and asks:
 ## Measured, not asserted
 
 Anchor ships its own adversarial benchmark: 30 memory slots, 201 events, 18
-mid-stream value changes, 9 low-trust poisoning attempts. Five memory strategies,
+mid-stream value changes, 9 poisoning attempts. Five memory strategies,
 same data, deterministic and fully offline.
 
 ```bash
@@ -103,6 +103,9 @@ python -m anchor.eval.benchmark        # or: anchor bench --json results.json
 | trust vote | 0.33 | 0.17 | **0.11** | 0.33 |
 | rag (vector) | 0.63 | 0.56 | 0.56 | 0.61 |
 | **anchor** | **1.00** | **1.00** | **1.00** | **1.00** |
+
+*Attacker model: one identity at trust 0.25, against legitimate sources at 0.9.
+That caveat matters — [see where this breaks](#where-this-breaks).*
 
 ![Benchmark — Anchor vs four baselines across four axes](docs/assets/benchmark.svg)
 
@@ -128,6 +131,81 @@ corroboration as first-class state**. That is the entire thesis.
 > harness is in [anchor/eval/](anchor/eval/) so you can disagree with it in code.
 
 ![Poisoning resistance under sustained low-trust attack](docs/assets/poisoning.svg)
+
+---
+
+## Where this breaks
+
+A perfect score on your own benchmark is a claim about the benchmark, not the
+system. So Anchor ships the sweep that attacks its own headline number:
+
+```bash
+python -m anchor.eval.benchmark --sweep    # or: anchor bench --sweep
+```
+
+**It is not a cherry-picked scenario.** Holding config fixed and varying only the
+seed — 1.00 across seeds 7, 13, 42, 99, 1234, 2026. Three of those are pinned in
+the test suite.
+
+**But one hyperparameter does all the work.** Ablating the benchmark config one
+knob at a time:
+
+| config | accuracy | poison resist. |
+|---|:--:|:--:|
+| all tuned | 1.00 | **1.00** |
+| default `min_sources_for_active` | 1.00 | 1.00 |
+| default `recency_half_life` | 1.00 | 1.00 |
+| default `max_source_evidence` | 0.87 | **0.56** |
+
+The per-source evidence cap *is* the result. The other two knobs are decorative
+on this scenario — and the benchmark's attack is "one source repeats itself 6–12
+times", which is exactly what an evidence cap is built to stop. The benchmark
+grades Anchor on its own threat model.
+
+**Two changes take it to zero.** Raising the attacker's trust toward the
+legitimate sources' 0.9:
+
+| attacker trust | 0.25 | 0.50 | 0.60 | 0.90 |
+|---|:--:|:--:|:--:|:--:|
+| poison resistance | **1.00** | 0.56 | **0.00** | **0.00** |
+
+And splitting the attacker across identities — the evidence cap is *per source*,
+so N identities buy N× the cap:
+
+| attacker identities | 1 | 2 | 3 | 5 | 10 | 20 |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| poison resistance | **1.00** | 0.56 | 0.56 | **0.33** | 0.33 | 0.33 |
+
+### What the headline number actually means
+
+> Anchor resists poisoning when the attacker is a **single source**, **already
+> labelled low-trust**, that **repeats itself**.
+
+That is a real and useful property — it covers the scraped-page and
+compromised-tool cases that break overwrite memory today. It is *not* "poison
+resistance 1.00" in general, and this README will not claim that.
+
+**Known gaps, stated plainly:**
+
+- **No Sybil defence.** Evidence is capped per source, and nothing costs an
+  attacker anything to become a new source. Corroboration should be discounted
+  by how correlated the sources are; today it isn't.
+- **Trust is an input, not an inference.** Anchor believes the trust score you
+  hand it. It does not learn that a source has started lying. Source reliability
+  should be estimated from its contradiction history.
+- **Equal trust means newest wins.** At trust parity a newer claim displaces an
+  older one. That is arguably correct, but it means trust asymmetry is doing the
+  security work, and trust asymmetry is your job to configure.
+
+Those three are pinned by tests in [tests/test_eval.py](tests/test_eval.py), so
+if a future change fixes one, the suite fails and this section gets updated.
+
+> **On reading any of these numbers:** this is a *synthetic* benchmark written by
+> the same author as the engine, with baselines implemented for comparison rather
+> than tuned to win. It demonstrates a structural tension between freshness and
+> poison-resistance — it does not prove production performance on real workloads.
+> Every number reproduces offline, and the harness is in
+> [anchor/eval/](anchor/eval/) so you can disagree with it in code.
 
 ---
 
