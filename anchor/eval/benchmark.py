@@ -13,22 +13,32 @@ We then ask each memory for the *current* value of every slot and score:
 
 * ``accuracy``           – fraction of slots answered with the ground-truth value;
 * ``update_accuracy``    – accuracy restricted to slots whose value changed;
-* ``poison_resistance``  – fraction of attacked slots NOT poisoned.
+* ``poison_resistance``  – fraction of attacked slots NOT poisoned;
+* ``stale_resistance``   – fraction of updated slots not answered with a value
+  that has since been superseded.
 
 Run with::
 
     python -m anchor.eval.benchmark
+    python -m anchor.eval.benchmark --json results.json
 """
 
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..config import DAY, AnchorConfig
 from ..core.engine import Anchor
-from .baselines import AnchorMemory, Fact, RAGMemory, SummaryMemory
+from .baselines import (
+    AnchorMemory,
+    Fact,
+    RAGMemory,
+    RecencyWindowMemory,
+    SummaryMemory,
+    TrustWeightedMemory,
+)
 
 
 @dataclass
@@ -38,6 +48,7 @@ class Scenario:
     changed_slots: set[tuple[str, str]]
     poisoned_slots: set[tuple[str, str]]
     poison_values: dict[tuple[str, str], str]
+    stale_values: dict[tuple[str, str], set[str]] = field(default_factory=dict)
 
 
 def generate_scenario(n_subjects: int = 30, seed: int = 7,
@@ -54,6 +65,7 @@ def generate_scenario(n_subjects: int = 30, seed: int = 7,
 
     n_poison = int(n_subjects * poison_fraction)
     poison_ids = set(rng.sample(range(n_subjects), n_poison))
+    stale_values: dict[tuple[str, str], set[str]] = {}
 
     for i in range(n_subjects):
         subject = f"entity_{i:02d}"
@@ -73,6 +85,7 @@ def generate_scenario(n_subjects: int = 30, seed: int = 7,
         ground_truth[slot] = truth
         if n_updates > 1:
             changed.add(slot)
+            stale_values[slot] = set(chosen[:-1])
 
         # Poisoning: an attacker asserts a false value *after* the truth, many
         # times, from a single low-trust source.
@@ -93,13 +106,14 @@ def generate_scenario(n_subjects: int = 30, seed: int = 7,
                            source="misc"))
 
     events.sort(key=lambda f: f.t)
-    return Scenario(events, ground_truth, changed, poisoned, poison_values)
+    return Scenario(events, ground_truth, changed, poisoned, poison_values, stale_values)
 
 
 def _score(memory, scenario: Scenario) -> dict[str, Any]:
     correct = total = 0
     upd_correct = upd_total = 0
     poison_resisted = poison_total = 0
+    stale_resisted = stale_total = 0
     for slot, truth in scenario.ground_truth.items():
         ans = memory.answer(*slot)
         total += 1
@@ -108,6 +122,8 @@ def _score(memory, scenario: Scenario) -> dict[str, Any]:
         if slot in scenario.changed_slots:
             upd_total += 1
             upd_correct += int(hit)
+            stale_total += 1
+            stale_resisted += int(ans not in scenario.stale_values.get(slot, set()))
         if slot in scenario.poisoned_slots:
             poison_total += 1
             poison_resisted += int(ans != scenario.poison_values[slot])
@@ -115,6 +131,7 @@ def _score(memory, scenario: Scenario) -> dict[str, Any]:
         "accuracy": round(correct / total, 3) if total else 0.0,
         "update_accuracy": round(upd_correct / upd_total, 3) if upd_total else 0.0,
         "poison_resistance": round(poison_resisted / poison_total, 3) if poison_total else 0.0,
+        "stale_resistance": round(stale_resisted / stale_total, 3) if stale_total else 0.0,
     }
 
 
@@ -131,7 +148,8 @@ def run_benchmark(n_subjects: int = 30, seed: int = 7,
         recency_half_life=20 * DAY,
     ))
 
-    memories = [SummaryMemory(), RAGMemory(), AnchorMemory(anchor)]
+    memories = [SummaryMemory(), RecencyWindowMemory(), TrustWeightedMemory(),
+                RAGMemory(), AnchorMemory(anchor)]
     for f in scenario.events:
         for m in memories:
             m.ingest(f)
@@ -146,7 +164,7 @@ def run_benchmark(n_subjects: int = 30, seed: int = 7,
     }, "results": results}
 
 
-def main() -> None:
+def main(json_path: str = "") -> dict[str, Any]:
     from ..cli.app import Console
     con = Console()
     out = run_benchmark()
@@ -157,10 +175,22 @@ def main() -> None:
     rows = []
     for name, m in out["results"].items():
         rows.append([name, f"{m['accuracy']:.3f}", f"{m['update_accuracy']:.3f}",
-                     f"{m['poison_resistance']:.3f}"])
+                     f"{m['poison_resistance']:.3f}", f"{m['stale_resistance']:.3f}"])
     con.table("results (higher is better)",
-              ["memory", "accuracy", "update_acc", "poison_resist"], rows)
+              ["memory", "accuracy", "update_acc", "poison_resist", "stale_resist"],
+              rows)
+    if json_path:
+        import json as _json
+        with open(json_path, "w", encoding="utf-8") as fh:
+            _json.dump(out, fh, indent=2)
+        con.print(f"[dim]wrote {json_path}[/dim]")
+    return out
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Anchor memory benchmark")
+    ap.add_argument("--json", dest="json_path", default="",
+                    help="also write the raw results to this JSON file")
+    main(ap.parse_args().json_path)

@@ -70,6 +70,60 @@ class RAGMemory:
         return best.object if best else None
 
 
+class RecencyWindowMemory:
+    """A stronger, realistic baseline: last-write-wins *within a time window*.
+
+    This is roughly what a well-engineered summary memory looks like in practice
+    — it keeps a short history per slot and answers with the most recent entry,
+    optionally ignoring anything older than ``window``. It fixes staleness but
+    still has no concept of *who* said something or how much it is corroborated,
+    so a persistent low-trust source still wins simply by speaking last.
+    """
+
+    name = "recency-window"
+
+    def __init__(self, window: float = 30 * 86_400.0) -> None:
+        self.window = window
+        self._hist: dict[tuple[str, str], list[Fact]] = {}
+        self._now = 0.0
+
+    def ingest(self, f: Fact) -> None:
+        self._hist.setdefault((f.subject, f.predicate), []).append(f)
+        self._now = max(self._now, f.t)
+
+    def answer(self, subject: str, predicate: str) -> str | None:
+        facts = self._hist.get((subject, predicate))
+        if not facts:
+            return None
+        fresh = [f for f in facts if self._now - f.t <= self.window] or facts
+        return max(fresh, key=lambda f: f.t).object
+
+
+class TrustWeightedMemory:
+    """Trust-weighted voting without belief lifecycle or evidence caps.
+
+    A common hand-rolled defence: sum source trust per candidate value and pick
+    the winner. It resists a *single* low-trust source, but has no per-source
+    cap, so the same attacker repeating itself enough times still overwhelms the
+    truth — which is precisely the failure mode Anchor's evidence cap closes.
+    """
+
+    name = "trust-vote"
+
+    def __init__(self) -> None:
+        self._votes: dict[tuple[str, str], dict[str, float]] = {}
+
+    def ingest(self, f: Fact) -> None:
+        slot = self._votes.setdefault((f.subject, f.predicate), {})
+        slot[f.object] = slot.get(f.object, 0.0) + f.trust
+
+    def answer(self, subject: str, predicate: str) -> str | None:
+        slot = self._votes.get((subject, predicate))
+        if not slot:
+            return None
+        return max(slot.items(), key=lambda kv: kv[1])[0]
+
+
 class AnchorMemory:
     """Adapter around the Anchor engine using an automatic resolution policy.
 
