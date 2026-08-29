@@ -26,6 +26,8 @@ from ..observability import Metrics, get_logger, log
 from . import confidence as conf
 from .contradiction import ContradictionDetector, PredicateRegistry, Relation
 from .embeddings import EmbeddingProvider, cosine, make_embedder
+from .explain import Explanation, explain_belief
+from .graph import BeliefGraph, build_graph
 from .models import (
     AuditEvent,
     Belief,
@@ -351,6 +353,33 @@ class Anchor:
             return (active, round(b.raw_confidence, 6), b.valid_from)
 
         return max(candidates, key=rank)
+
+    # ---------------------------------------------------------- explainability
+    def explain(self, belief_id: str, *, at: float | None = None) -> Explanation:
+        """Explain *why* a belief is held: evidence attribution per source, the
+        Beta posterior and its credible interval, the audit timeline, a decay
+        projection, and plain-English reasoning.
+
+        This is the read-side counterpart to :meth:`observe` — an agent (or a
+        human reviewer) can always ask memory to justify itself.
+        """
+        belief = self.store.get_belief(belief_id)
+        if belief is None:
+            raise KeyError(f"unknown belief {belief_id}")
+        self.metrics.incr("explain.calls")
+        return explain_belief(belief, self.store, self.config, at=at)
+
+    def graph(self, namespace: str = "default", *, include_inactive: bool = False,
+              include_sources: bool = False, max_beliefs: int = 250) -> BeliefGraph:
+        """Project memory into a confidence-weighted knowledge graph.
+
+        Subjects/objects become nodes, beliefs become weighted edges, and open
+        contradictions become dashed conflict edges.
+        """
+        return build_graph(
+            self.store, namespace, include_inactive=include_inactive,
+            include_sources=include_sources, max_beliefs=max_beliefs,
+        )
 
     # ------------------------------------------------------------ contradictions
     def open_contradictions(self, namespace: str = "default") -> list[Contradiction]:

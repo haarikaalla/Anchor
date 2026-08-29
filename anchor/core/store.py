@@ -199,6 +199,19 @@ class SQLiteStore:
             ).fetchone()
         return int(row["n"]) if row else 0
 
+    def source_evidence_breakdown(self, belief_id: str) -> dict[str, float]:
+        """Full per-source evidence ledger for one belief (supporting *and*
+        contradicting, the latter stored under a ``con::`` prefix).
+
+        Powers evidence attribution in :mod:`anchor.core.explain`.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT source_id, evidence FROM source_evidence WHERE belief_id=?",
+                (belief_id,),
+            ).fetchall()
+        return {r["source_id"]: float(r["evidence"]) for r in rows}
+
     # ------------------------------------------------------------ contradictions
     def upsert_contradiction(self, c: Contradiction) -> None:
         with self._lock, self._conn:
@@ -298,6 +311,37 @@ class SQLiteStore:
                 prev_hash=r["prev_hash"], hash=r["hash"],
             ))
         return out
+
+    def latest_audit_seq(self, namespace: str) -> int:
+        """Monotonic cursor for the namespace's audit log (0 when empty)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT seq FROM audit WHERE namespace=? ORDER BY seq DESC LIMIT 1",
+                (namespace,),
+            ).fetchone()
+        return int(row["seq"]) if row else 0
+
+    def audit_after(self, namespace: str, seq: int,
+                    limit: int = 200) -> list[tuple[int, AuditEvent]]:
+        """Tail the audit log past ``seq``, oldest first.
+
+        Lets a live consumer (the dashboard's event stream) follow every state
+        change without polling the whole log or holding a callback in the engine.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM audit WHERE namespace=? AND seq>? ORDER BY seq ASC LIMIT ?",
+                (namespace, seq, limit),
+            ).fetchall()
+        return [
+            (int(r["seq"]), AuditEvent(
+                id=r["id"], namespace=r["namespace"], ts=r["ts"],
+                event_type=r["event_type"], belief_id=r["belief_id"],
+                actor=r["actor"], payload=json.loads(r["payload"] or "{}"),
+                prev_hash=r["prev_hash"], hash=r["hash"],
+            ))
+            for r in rows
+        ]
 
     def verify_audit_chain(self, namespace: str) -> bool:
         """Recompute the hash chain and confirm nothing has been tampered with."""
