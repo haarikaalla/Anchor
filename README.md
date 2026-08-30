@@ -70,9 +70,7 @@ It raises a contradiction, keeps both, and asks:
 
 ![Anchor demo — belief memory detecting a contradiction instead of overwriting](docs/assets/anchor-demo.svg)
 
-> Everything animated in this README is generated from a **live engine run** via
-> `anchor render-assets` — no mockups, no screen recordings. If the behaviour
-> changes, the visuals change with it.
+
 
 ---
 
@@ -183,7 +181,7 @@ so N identities buy N× the cap:
 
 That is a real and useful property — it covers the scraped-page and
 compromised-tool cases that break overwrite memory today. It is *not* "poison
-resistance 1.00" in general, and this README will not claim that.
+resistance 1.00" in general
 
 **Known gaps, stated plainly:**
 
