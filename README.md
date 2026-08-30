@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚓ Anchor
+#  Anchor
 
 ### Persistent belief-memory infrastructure for AI agents
 
