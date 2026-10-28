@@ -1,0 +1,20 @@
+services:
+  anchor:
+    build: .
+    restart: unless-stopped
+    environment:
+      ANCHOR_API_TOKEN: ${ANCHOR_API_TOKEN:?Set ANCHOR_API_TOKEN in .env}
+      ANCHOR_TENANT_TOKENS: "${ANCHOR_TENANT_TOKENS:-{}}"
+      ANCHOR_LOG_LEVEL: ${ANCHOR_LOG_LEVEL:-INFO}
+    ports:
+      - "127.0.0.1:${ANCHOR_PORT:-8080}:8080"
+    volumes:
+      - anchor_data:/data
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  anchor_data:

@@ -29,6 +29,7 @@ class Fact:
     t: float                 # observation time (timeline)
     trust: float = 0.8
     source: str = "user"
+    source_group: str = ""
 
 
 class SummaryMemory:
@@ -140,7 +141,8 @@ class AnchorMemory:
 
     def ingest(self, f: Fact) -> None:
         self.a.observe(f.subject, f.predicate, f.object, namespace=self.ns,
-                       source_type="user", source_id=f.source, trust=f.trust, at=f.t)
+                       source_type="user", source_id=f.source,
+                       source_group=f.source_group, trust=f.trust, at=f.t)
         # Apply an automatic reliability-aware resolution policy for functional
         # slots (robust to poisoning and stale updates).
         for con in self.a.open_contradictions(self.ns):

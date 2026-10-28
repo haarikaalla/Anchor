@@ -90,7 +90,8 @@ class BeliefGraph:
             self.nodes[0].x, self.nodes[0].y = width / 2, height / 2
             return self
 
-        rng = random.Random(seed)
+        # Deterministic layout jitter, never used for a security decision.
+        rng = random.Random(seed)  # nosec B311
         area = width * height
         k = math.sqrt(area / n)          # ideal edge length
         index = {node.id: i for i, node in enumerate(self.nodes)}

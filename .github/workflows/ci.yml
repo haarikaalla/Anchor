@@ -31,4 +31,30 @@ jobs:
         run: ruff check .
 
       - name: Run tests
-        run: python -m pytest -q
+        run: python -m pytest --cov=anchor --cov-fail-under=75
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install build
+      - run: python -m build
+      - name: Verify wheel in a clean environment
+        run: |
+          python -m venv /tmp/anchor-wheel
+          /tmp/anchor-wheel/bin/pip install dist/*.whl
+          /tmp/anchor-wheel/bin/anchor --help
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: anchor-memory:ci

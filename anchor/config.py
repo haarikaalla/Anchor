@@ -86,6 +86,12 @@ class AnchorConfig:
     max_source_evidence: float = field(
         default_factory=lambda: _env_float("ANCHOR_MAX_SRC_EVIDENCE", 5.0)
     )
+    # Aggregate cap for sources known to share an operator, vendor, session
+    # cluster or trust domain. This limits a correlated/Sybil source group even
+    # when it rotates through many source IDs.
+    max_source_group_evidence: float = field(
+        default_factory=lambda: _env_float("ANCHOR_MAX_GROUP_EVIDENCE", 5.0)
+    )
     # Minimum distinct trusted sources before a belief may become ACTIVE.
     min_sources_for_active: int = field(
         default_factory=lambda: _env_int("ANCHOR_MIN_SOURCES", 1)

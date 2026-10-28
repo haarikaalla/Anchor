@@ -76,6 +76,9 @@ class Provenance:
 
     source_type: SourceType = SourceType.USER
     source_id: str = ""
+    # Optional operator-supplied correlation domain. Different source IDs in
+    # the same group share an aggregate evidence cap.
+    source_group: str = ""
     agent_id: str = ""
     session_id: str = ""
     raw_text: str = ""

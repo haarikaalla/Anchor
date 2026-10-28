@@ -6,7 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-28
+
 ### Added
+- **Tenant-scoped API authentication:** `ANCHOR_TENANT_TOKENS` maps namespaces to
+  bearer tokens. The API derives namespace access from the authenticated tenant
+  and rejects cross-tenant list, mutation and direct-object requests.
+- **Durable idempotent observations:** Python, CLI and REST callers can supply an
+  idempotency key. Identical retries replay the original result without adding
+  evidence; changed payloads fail with `409 Conflict` over HTTP.
+- **Correlation-aware evidence budgets:** observations can declare a
+  `source_group`; identities within the group share an aggregate evidence cap and
+  count as one independent trust domain for promotion.
+- **Operations tooling:** `anchor backup` creates a consistent online SQLite copy
+  and verifies it before success; `anchor doctor` checks database integrity and
+  the hash-chained audit log.
+- **Production packaging:** non-root Docker image, hardened Compose profile,
+  health check, persistent volume and example environment configuration.
+- **Supply-chain automation:** weekly Dependabot updates for Python, GitHub
+  Actions and Docker; CI now builds the wheel and container; a security workflow
+  runs Bandit and `pip-audit`.
 - **Adversarial sweep for the benchmark** (`anchor bench --sweep`,
   `run_sweep()`): varies the scenario seed, the attacker's trust and the number
   of attacker identities, and ablates the benchmark's tuned config one knob at a
@@ -14,6 +33,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the threat model is a parameter rather than a hardcoded assumption.
 
 ### Changed
+- Package version raised to 0.3.0 and documentation expanded with threat-model,
+  tenant isolation, retry, deployment, recovery and operational runbooks.
 - **The headline 1.00 poison-resistance result is now reported with its limits.**
   The sweep shows the result is stable across scenario seeds, but that it rests
   entirely on `max_source_evidence` and on the attacker being a single,
@@ -23,8 +44,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   presenting 1.00 unqualified.
 
 ### Known limitations
-- **No Sybil defence.** The evidence cap is per source and identities are free,
-  so corroboration is not discounted by source correlation.
+- **No automatic Sybil detection.** Operator-supplied source groups constrain
+  known correlated identities, but Anchor does not infer those relationships.
 - **Trust is an input, not an inference.** Source reliability is not learned from
   contradiction history.
 - These are pinned by tests in `tests/test_eval.py`, so fixing one fails the

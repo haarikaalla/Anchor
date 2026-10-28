@@ -11,13 +11,16 @@ Write path invariants
 * A conflicting claim is **never silently overwritten**; it produces a
   :class:`Contradiction` and both beliefs are marked ``DISPUTED`` until resolved.
 * Every state change emits a hash-chained :class:`AuditEvent`.
-* No single source can flood a belief to certainty (evidence cap) and promotion
-  to ``ACTIVE`` can require corroboration from multiple sources.
+* No single source or declared source group can flood a belief to certainty, and
+  promotion to ``ACTIVE`` can require corroboration from independent groups.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -61,6 +64,22 @@ class ObserveResult:
             "notes": self.notes,
         }
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> ObserveResult:
+        return cls(
+            action=str(payload["action"]),
+            belief=Belief.from_dict(payload["belief"]),
+            contradictions=[
+                Contradiction.from_dict(item) for item in payload.get("contradictions", [])
+            ],
+            reinforced_id=payload.get("reinforced_id"),
+            notes=list(payload.get("notes", [])),
+        )
+
+
+class IdempotencyConflict(ValueError):
+    """An idempotency key was reused for a different observation payload."""
+
 
 @dataclass
 class RecallItem:
@@ -94,6 +113,10 @@ class Anchor:
         self.guard = SecurityGuard(self.config.max_statement_chars)
         self.metrics = Metrics()
         self.log: logging.Logger = get_logger("anchor", self.config.log_level)
+        # Serialises compound write operations in one engine process. SQLite
+        # still handles cross-process locking, while this lock makes durable
+        # idempotency exact for the threaded HTTP server.
+        self._write_lock = threading.RLock()
 
     # ------------------------------------------------------------------ helpers
     def _embed(self, text: str) -> list[float]:
@@ -102,6 +125,10 @@ class Anchor:
     @staticmethod
     def _source_id(prov: Provenance) -> str:
         return prov.source_id or prov.agent_id or prov.session_id or prov.source_type.value
+
+    @classmethod
+    def _source_group_id(cls, prov: Provenance) -> str:
+        return prov.source_group or cls._source_id(prov)
 
     def _default_statement(self, subject: str, predicate: str, object_: str,
                            polarity: Polarity) -> str:
@@ -119,7 +146,8 @@ class Anchor:
         if belief.status != BeliefStatus.PROVISIONAL:
             return
         enough_sources = (
-            self.store.distinct_sources(belief.id) >= self.config.min_sources_for_active
+            self.store.distinct_source_groups(belief.id)
+            >= self.config.min_sources_for_active
         )
         if belief.raw_confidence >= self.config.promote_threshold and enough_sources:
             belief.status = BeliefStatus.ACTIVE
@@ -138,6 +166,96 @@ class Anchor:
         namespace: str = "default",
         source_type: SourceType | str = SourceType.USER,
         source_id: str = "",
+        source_group: str = "",
+        agent_id: str = "",
+        session_id: str = "",
+        trust: float | None = None,
+        valid_from: float | None = None,
+        valid_to: float | None = None,
+        at: float | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        idempotency_key: str = "",
+    ) -> ObserveResult:
+        """Record an observation once, with durable retry deduplication.
+
+        Reusing ``idempotency_key`` with the same payload returns the original
+        result without adding evidence. Reusing it with a different payload is
+        rejected, protecting callers from accidental key collisions.
+        """
+        if len(idempotency_key) > 256:
+            raise ValueError("idempotency key must be 256 characters or fewer")
+        request_payload = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": object,
+            "statement": statement,
+            "polarity": polarity.value if isinstance(polarity, Polarity) else polarity,
+            "source_type": (
+                source_type.value if isinstance(source_type, SourceType) else source_type
+            ),
+            "source_id": source_id,
+            "source_group": source_group,
+            "agent_id": agent_id,
+            "session_id": session_id,
+            "trust": trust,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+            "at": at,
+            "tags": tags or [],
+            "metadata": metadata or {},
+        }
+        request_hash = hashlib.sha256(
+            json.dumps(request_payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+        ).hexdigest()
+        with self._write_lock:
+            if idempotency_key:
+                stored = self.store.get_idempotency(namespace, idempotency_key)
+                if stored is not None:
+                    stored_hash, response = stored
+                    if stored_hash != request_hash:
+                        raise IdempotencyConflict(
+                            "idempotency key was already used for a different observation"
+                        )
+                    self.metrics.incr("observe.idempotent_replay")
+                    return ObserveResult.from_dict(response)
+            result = self._observe_once(
+                subject,
+                predicate,
+                object,
+                statement=statement,
+                polarity=polarity,
+                namespace=namespace,
+                source_type=source_type,
+                source_id=source_id,
+                source_group=source_group,
+                agent_id=agent_id,
+                session_id=session_id,
+                trust=trust,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                at=at,
+                tags=tags,
+                metadata=metadata,
+            )
+            if idempotency_key:
+                self.store.record_idempotency(
+                    namespace, idempotency_key, request_hash, result.to_dict()
+                )
+            return result
+
+    def _observe_once(
+        self,
+        subject: str,
+        predicate: str,
+        object: str,
+        *,
+        statement: str | None = None,
+        polarity: Polarity | str = Polarity.POSITIVE,
+        namespace: str = "default",
+        source_type: SourceType | str = SourceType.USER,
+        source_id: str = "",
+        source_group: str = "",
         agent_id: str = "",
         session_id: str = "",
         trust: float | None = None,
@@ -171,12 +289,14 @@ class Anchor:
         eff_trust = max(0.0, min(1.0, base_trust)) * screen.trust_penalty
 
         prov = Provenance(
-            source_type=source_type, source_id=source_id, agent_id=agent_id,
+            source_type=source_type, source_id=source_id, source_group=source_group,
+            agent_id=agent_id,
             session_id=session_id, raw_text=screen.text, trust=eff_trust,
             observed_at=ts,
             metadata={"flags": screen.flags} if screen.flags else {},
         )
         src_key = self._source_id(prov)
+        group_key = self._source_group_id(prov)
 
         candidate = Belief(
             subject=subject, predicate=predicate, object=object,
@@ -203,18 +323,28 @@ class Anchor:
         # --- reinforcement path ------------------------------------------------
         if reinforce_target is not None:
             return self._apply_reinforcement(
-                reinforce_target.other, prov, src_key, screen.text, ts)
+                reinforce_target.other, prov, src_key, group_key, screen.text, ts)
 
         # --- create the new belief --------------------------------------------
-        add = clamp_source_evidence(
+        source_add = clamp_source_evidence(
             self.store.source_evidence(candidate.id, src_key),
             self.config.reinforce_gain * eff_trust,
             self.config.max_source_evidence * eff_trust,
+        )
+        add = (
+            clamp_source_evidence(
+                self.store.source_group_evidence(candidate.id, group_key),
+                source_add,
+                self.config.max_source_group_evidence,
+            )
+            if prov.source_group
+            else source_add
         )
         candidate.alpha += add
         candidate.provenance.append(prov)
         self.store.upsert_belief(candidate)
         self.store.add_source_evidence(candidate.id, src_key, add)
+        self.store.add_source_group_evidence(candidate.id, group_key, add)
         self._audit("created", candidate.id, namespace, src_key,
                     statement=candidate.statement, confidence=candidate.raw_confidence,
                     flags=screen.flags)
@@ -230,13 +360,23 @@ class Anchor:
                 # never deletes it. A single source's total contradicting
                 # contribution is capped (trust-scaled) so an attacker cannot
                 # erode a corroborated belief through sheer repetition.
-                badd = clamp_source_evidence(
+                source_badd = clamp_source_evidence(
                     self.store.source_evidence(other.id, "con::" + src_key),
                     self.config.contradict_gain * eff_trust,
                     self.config.max_source_evidence * eff_trust,
                 )
+                badd = (
+                    clamp_source_evidence(
+                        self.store.source_group_evidence(other.id, "con::" + group_key),
+                        source_badd,
+                        self.config.max_source_group_evidence,
+                    )
+                    if prov.source_group
+                    else source_badd
+                )
                 other.beta += badd
                 self.store.add_source_evidence(other.id, "con::" + src_key, badd)
+                self.store.add_source_group_evidence(other.id, "con::" + group_key, badd)
                 other.contradiction_count += 1
                 other.status = BeliefStatus.DISPUTED
                 self.store.upsert_belief(other)
@@ -267,13 +407,22 @@ class Anchor:
         )
 
     def _apply_reinforcement(self, belief: Belief, prov: Provenance,
-                             src_key: str, text: str,
+                             src_key: str, group_key: str, text: str,
                              at: float | None = None) -> ObserveResult:
         ts = now() if at is None else at
-        add = clamp_source_evidence(
+        source_add = clamp_source_evidence(
             self.store.source_evidence(belief.id, src_key),
             self.config.reinforce_gain * prov.trust,
             self.config.max_source_evidence * max(prov.trust, 1e-6),
+        )
+        add = (
+            clamp_source_evidence(
+                self.store.source_group_evidence(belief.id, group_key),
+                source_add,
+                self.config.max_source_group_evidence,
+            )
+            if prov.source_group
+            else source_add
         )
         belief.alpha, belief.beta = conf.reinforce(
             belief.alpha, belief.beta, add, 1.0)  # add already trust-scaled/capped
@@ -282,9 +431,11 @@ class Anchor:
         belief.provenance.append(prov)
         if belief.status == BeliefStatus.PROVISIONAL:
             self.store.add_source_evidence(belief.id, src_key, add)
+            self.store.add_source_group_evidence(belief.id, group_key, add)
             self._maybe_promote(belief)
         else:
             self.store.add_source_evidence(belief.id, src_key, add)
+            self.store.add_source_group_evidence(belief.id, group_key, add)
         self.store.upsert_belief(belief)
         self.metrics.incr("observe.reinforced")
         self._audit("reinforced", belief.id, belief.namespace, src_key,
@@ -523,6 +674,12 @@ class Anchor:
 
     def verify_audit(self, namespace: str = "default") -> bool:
         return self.store.verify_audit_chain(namespace)
+
+    def backup(self, destination: str) -> dict[str, Any]:
+        """Create a consistent online SQLite backup and verify its integrity."""
+        result = self.store.backup(destination)
+        self.metrics.incr("backup.completed")
+        return result
 
     def stats(self, namespace: str = "default") -> dict[str, Any]:
         s = self.store.stats(namespace)

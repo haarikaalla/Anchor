@@ -20,6 +20,7 @@ import json
 import sqlite3
 import threading
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from .models import AuditEvent, Belief, Contradiction, ContradictionStatus, now
@@ -77,6 +78,22 @@ CREATE TABLE IF NOT EXISTS source_evidence (
     source_id  TEXT NOT NULL,
     evidence   REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (belief_id, source_id)
+);
+
+CREATE TABLE IF NOT EXISTS source_group_evidence (
+    belief_id  TEXT NOT NULL,
+    group_id   TEXT NOT NULL,
+    evidence   REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (belief_id, group_id)
+);
+
+CREATE TABLE IF NOT EXISTS idempotency_receipts (
+    namespace    TEXT NOT NULL,
+    key          TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    response     TEXT NOT NULL,
+    created_at   REAL NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (namespace, key)
 );
 """
 
@@ -211,6 +228,65 @@ class SQLiteStore:
                 (belief_id,),
             ).fetchall()
         return {r["source_id"]: float(r["evidence"]) for r in rows}
+
+    def source_group_evidence(self, belief_id: str, group_id: str) -> float:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT evidence FROM source_group_evidence WHERE belief_id=? AND group_id=?",
+                (belief_id, group_id),
+            ).fetchone()
+        return float(row["evidence"]) if row else 0.0
+
+    def add_source_group_evidence(
+        self, belief_id: str, group_id: str, amount: float
+    ) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO source_group_evidence (belief_id, group_id, evidence)
+                VALUES (?,?,?)
+                ON CONFLICT(belief_id, group_id)
+                DO UPDATE SET evidence = evidence + excluded.evidence
+                """,
+                (belief_id, group_id, amount),
+            )
+
+    def distinct_source_groups(self, belief_id: str) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT COUNT(*) AS n FROM source_group_evidence
+                   WHERE belief_id=? AND evidence > 0 AND group_id NOT LIKE 'con::%'""",
+                (belief_id,),
+            ).fetchone()
+        return int(row["n"]) if row else 0
+
+    # ---------------------------------------------------------- retry receipts
+    def get_idempotency(
+        self, namespace: str, key: str
+    ) -> tuple[str, dict[str, Any]] | None:
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT request_hash, response FROM idempotency_receipts
+                   WHERE namespace=? AND key=?""",
+                (namespace, key),
+            ).fetchone()
+        if row is None:
+            return None
+        return str(row["request_hash"]), json.loads(row["response"])
+
+    def record_idempotency(
+        self,
+        namespace: str,
+        key: str,
+        request_hash: str,
+        response: dict[str, Any],
+    ) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT INTO idempotency_receipts
+                   (namespace, key, request_hash, response) VALUES (?,?,?,?)""",
+                (namespace, key, request_hash, _canonical(response)),
+            )
 
     # ------------------------------------------------------------ contradictions
     def upsert_contradiction(self, c: Contradiction) -> None:
@@ -363,6 +439,31 @@ class SQLiteStore:
             prev = r["hash"]
         return True
 
+    # ---------------------------------------------------------- resilience
+    def integrity_check(self) -> bool:
+        """Run SQLite's structural integrity check."""
+        with self._lock:
+            row = self._conn.execute("PRAGMA integrity_check").fetchone()
+        return bool(row and row[0] == "ok")
+
+    def backup(self, destination: str) -> dict[str, Any]:
+        """Create a consistent online backup without stopping readers/writers."""
+        target = Path(destination).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target == Path(self.path).expanduser().resolve():
+            raise ValueError("backup destination must differ from the live database")
+        with self._lock:
+            dest = sqlite3.connect(str(target))
+            try:
+                self._conn.backup(dest)
+                result = dest.execute("PRAGMA integrity_check").fetchone()
+            finally:
+                dest.close()
+        if not result or result[0] != "ok":
+            target.unlink(missing_ok=True)
+            raise RuntimeError("backup integrity verification failed")
+        return {"path": str(target), "integrity": "ok", "bytes": target.stat().st_size}
+
     # ------------------------------------------------------------------ metrics
     def stats(self, namespace: str) -> dict[str, Any]:
         with self._lock:
@@ -382,4 +483,5 @@ class SQLiteStore:
             "by_status": {r["status"]: r["n"] for r in counts},
             "open_contradictions": open_con["n"] if open_con else 0,
             "avg_confidence": round(avg["c"], 4) if avg and avg["c"] is not None else None,
+            "database_integrity": "ok" if self.integrity_check() else "failed",
         }

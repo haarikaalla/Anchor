@@ -73,6 +73,7 @@ def cmd_observe(args: argparse.Namespace, con: Console) -> None:
         args.subject, args.predicate, args.object,
         statement=args.statement, polarity=args.polarity, namespace=args.namespace,
         source_type=args.source_type, source_id=args.source_id, trust=args.trust,
+        source_group=args.source_group, idempotency_key=args.idempotency_key,
     )
     con.print(f"[bold]{res.action.upper()}[/bold] "
               f"[cyan]{res.belief.statement}[/cyan] "
@@ -152,6 +153,32 @@ def cmd_audit(args: argparse.Namespace, con: Console) -> None:
 def cmd_stats(args: argparse.Namespace, con: Console) -> None:
     a = _anchor(args)
     con.print(json.dumps(a.stats(args.namespace), indent=2))
+
+
+def cmd_backup(args: argparse.Namespace, con: Console) -> None:
+    """Create and verify a consistent online backup."""
+    a = _anchor(args)
+    try:
+        result = a.backup(args.output)
+        con.print(json.dumps(result, indent=2))
+    finally:
+        a.close()
+
+
+def cmd_doctor(args: argparse.Namespace, con: Console) -> None:
+    """Run storage and audit-chain health checks for operators."""
+    a = _anchor(args)
+    try:
+        checks = {
+            "database_integrity": a.store.integrity_check(),
+            "audit_chain_intact": a.verify_audit(args.namespace),
+            "namespace": args.namespace,
+        }
+        con.print(json.dumps(checks, indent=2))
+        if not all(value for key, value in checks.items() if key != "namespace"):
+            raise SystemExit(1)
+    finally:
+        a.close()
 
 
 def cmd_explain(args: argparse.Namespace, con: Console) -> None:
@@ -336,6 +363,10 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--polarity", default="positive", choices=["positive", "negative"])
     o.add_argument("--source-type", dest="source_type", default="user")
     o.add_argument("--source-id", dest="source_id", default="")
+    o.add_argument("--source-group", dest="source_group", default="",
+                   help="correlation/trust domain shared by related source IDs")
+    o.add_argument("--idempotency-key", dest="idempotency_key", default="",
+                   help="deduplicate safe retries of the same observation")
     o.add_argument("--trust", type=float, default=0.8)
     o.set_defaults(func=cmd_observe)
 
@@ -371,6 +402,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("stats", help="memory health metrics")
     st.set_defaults(func=cmd_stats)
+
+    bk = sub.add_parser("backup", help="create and verify an online SQLite backup")
+    bk.add_argument("output", help="destination .db path")
+    bk.set_defaults(func=cmd_backup)
+
+    doctor = sub.add_parser("doctor", help="verify SQLite integrity and audit chain")
+    doctor.set_defaults(func=cmd_doctor)
 
     ex = sub.add_parser("explain", help="explain why a belief is held")
     ex.add_argument("id")

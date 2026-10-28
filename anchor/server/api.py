@@ -12,8 +12,9 @@ A dependency-free control plane for the memory engine, built on
 Security posture
 ----------------
 * Binds to ``127.0.0.1`` by default; you must opt in to a public interface.
-* Optional bearer-token auth (``--token`` / ``ANCHOR_API_TOKEN``) compared with
-  :func:`hmac.compare_digest`; when set it guards every ``/api`` route.
+* Optional global bearer auth (``--token`` / ``ANCHOR_API_TOKEN``) and
+  namespace-scoped tenant tokens (``ANCHOR_TENANT_TOKENS``), all compared with
+  :func:`hmac.compare_digest`; when configured they guard API and metrics routes.
 * Request bodies are size-capped and parsed with :func:`json.loads` only — no
   ``eval``/pickle anywhere.
 * No filesystem is served: the dashboard is an in-memory string, so there is no
@@ -35,7 +36,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from ..config import AnchorConfig
-from ..core.engine import Anchor
+from ..core.engine import Anchor, IdempotencyConflict
 from .dashboard import DASHBOARD_HTML
 
 MAX_BODY_BYTES = 256 * 1024
@@ -105,7 +106,7 @@ class EventBus:
             try:
                 batch = self._anchor.store.audit_after(self._namespace, self._cursor, 100)
             except Exception:  # store closed or transient lock; keep the poller alive
-                continue
+                batch = []
             for seq, event in batch:
                 self._cursor = seq
                 self.publish({"type": "audit", "event": event.to_dict()})
@@ -157,22 +158,39 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
     def anchor(self) -> Anchor:
         return self.server.anchor  # type: ignore[attr-defined]
 
-    @property
-    def bus(self) -> EventBus:
-        return self.server.bus  # type: ignore[attr-defined]
+    def _bus(self, namespace: str) -> EventBus:
+        buses = self.server.buses  # type: ignore[attr-defined]
+        lock = self.server.buses_lock  # type: ignore[attr-defined]
+        with lock:
+            bus = buses.get(namespace)
+            if bus is None:
+                bus = EventBus(self.anchor, namespace)
+                buses[namespace] = bus
+                bus.start()
+        return bus
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter default logging
         if getattr(self.server, "verbose", False):
             super().log_message(fmt, *args)
 
-    def _authorized(self) -> bool:
+    def _auth_scope(self) -> str | None:
+        """Return `*`, an allowed namespace, or None for invalid credentials."""
         token = getattr(self.server, "token", "")
-        if not token:
-            return True
+        tenant_tokens = getattr(self.server, "tenant_tokens", {})
+        if not token and not tenant_tokens:
+            return "*"
         header = self.headers.get("Authorization", "")
         prefix = "Bearer "
         supplied = header[len(prefix):] if header.startswith(prefix) else ""
-        return hmac.compare_digest(supplied, token)
+        if token and hmac.compare_digest(supplied, token):
+            return "*"
+        for namespace, tenant_token in tenant_tokens.items():
+            if hmac.compare_digest(supplied, tenant_token):
+                return str(namespace)
+        return None
+
+    def _authorized(self) -> bool:
+        return self._auth_scope() is not None
 
     def _security_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -181,7 +199,10 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
         origin = getattr(self.server, "cors_origin", "")
         if origin:
             self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            self.send_header(
+                "Access-Control-Allow-Headers",
+                "Authorization, Content-Type, Idempotency-Key",
+            )
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
@@ -228,7 +249,12 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
         return params.get(key, [default])[0]
 
     def _ns(self, params: dict[str, list[str]]) -> str:
-        return self._one(params, "namespace", getattr(self.server, "namespace", "default"))
+        scope = getattr(self, "_request_scope", "*")
+        default = scope if scope != "*" else getattr(self.server, "namespace", "default")
+        namespace = self._one(params, "namespace", default)
+        if scope != "*" and namespace != scope:
+            raise PermissionError("token is not authorized for this namespace")
+        return namespace
 
     # -------------------------------------------------------------- verbs
     def do_OPTIONS(self) -> None:
@@ -244,20 +270,30 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
         if path == "/health":
             return self._json({"status": "ok", "version": _version()})
         if path == "/metrics":
-            if not self._authorized():
+            scope = self._auth_scope()
+            if scope is None:
                 return self._error(401, "unauthorized")
-            body = _prometheus(self.anchor, self._ns(params)).encode()
+            self._request_scope = scope
+            try:
+                namespace = self._ns(params)
+            except PermissionError as exc:
+                return self._error(403, str(exc))
+            body = _prometheus(self.anchor, namespace).encode()
             return self._send(200, body, "text/plain; version=0.0.4; charset=utf-8")
 
         if not path.startswith("/api/"):
             return self._error(404, "not found")
-        if not self._authorized():
+        scope = self._auth_scope()
+        if scope is None:
             return self._error(401, "unauthorized")
+        self._request_scope = scope
 
         try:
             return self._route_get(path, params)
         except KeyError as exc:
             return self._error(404, str(exc))
+        except PermissionError as exc:
+            return self._error(403, str(exc))
         except (ValueError, TypeError) as exc:
             return self._error(400, str(exc))
         except Exception as exc:  # pragma: no cover - defensive
@@ -320,12 +356,16 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/belief/"):
             bid = path.rsplit("/", 1)[-1]
             belief = a.get(bid)
-            if belief is None:
+            if belief is None or belief.namespace != ns:
                 raise KeyError(f"unknown belief {bid}")
             return self._json(belief.to_dict())
 
         if path.startswith("/api/explain/"):
-            return self._json(a.explain(path.rsplit("/", 1)[-1]).to_dict())
+            bid = path.rsplit("/", 1)[-1]
+            belief = a.get(bid)
+            if belief is None or belief.namespace != ns:
+                raise KeyError(f"unknown belief {bid}")
+            return self._json(a.explain(bid).to_dict())
 
         if path == "/api/events":
             return self._stream_events(ns)
@@ -337,10 +377,17 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         if not path.startswith("/api/"):
             return self._error(404, "not found")
-        if not self._authorized():
+        scope = self._auth_scope()
+        if scope is None:
             return self._error(401, "unauthorized")
+        self._request_scope = scope
         try:
             body = self._body()
+            requested = str(body.get("namespace") or "")
+            if scope != "*":
+                if requested and requested != scope:
+                    raise PermissionError("token is not authorized for this namespace")
+                body["namespace"] = scope
             return self._route_post(path, body)
         except PayloadTooLarge as exc:
             # Drain what we can, then close: the client is mid-write, and
@@ -350,6 +397,10 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
             return self._error(413, str(exc))
         except KeyError as exc:
             return self._error(404, str(exc))
+        except PermissionError as exc:
+            return self._error(403, str(exc))
+        except IdempotencyConflict as exc:
+            return self._error(409, str(exc))
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             return self._error(400, str(exc))
         except Exception as exc:  # pragma: no cover - defensive
@@ -371,10 +422,12 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
                 namespace=ns,
                 source_type=str(body.get("source_type") or "user"),
                 source_id=str(body.get("source_id") or "api"),
+                source_group=str(body.get("source_group") or ""),
                 agent_id=str(body.get("agent_id") or ""),
                 session_id=str(body.get("session_id") or ""),
                 trust=float(trust) if trust is not None else None,
                 tags=list(body.get("tags") or []),
+                idempotency_key=self.headers.get("Idempotency-Key", "").strip(),
             )
             return self._json(result.to_dict())
 
@@ -382,6 +435,9 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
             cid = str(body.get("contradiction_id") or "")
             if not cid:
                 raise ValueError("missing 'contradiction_id'")
+            existing = a.store.get_contradiction(cid)
+            if existing is None or existing.namespace != ns:
+                raise KeyError(f"unknown contradiction {cid}")
             con = a.resolve_contradiction(
                 cid,
                 strategy=str(body.get("strategy") or "reliable"),
@@ -395,6 +451,9 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
             bid = str(body.get("belief_id") or "")
             if not bid:
                 raise ValueError("missing 'belief_id'")
+            existing_belief = a.get(bid)
+            if existing_belief is None or existing_belief.namespace != ns:
+                raise KeyError(f"unknown belief {bid}")
             belief = a.retract(bid, actor=str(body.get("actor") or "dashboard"),
                                reason=str(body.get("reason") or ""))
             return self._json(belief.to_dict())
@@ -409,7 +468,8 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
 
     # --------------------------------------------------------------- SSE
     def _stream_events(self, namespace: str) -> None:
-        q = self.bus.subscribe()
+        bus = self._bus(namespace)
+        q = bus.subscribe()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -436,7 +496,7 @@ class AnchorHTTPRequestHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
-            self.bus.unsubscribe(q)
+            bus.unsubscribe(q)
 
 
 def seed_demo(anchor: Anchor, namespace: str = "default") -> dict[str, Any]:
@@ -482,37 +542,57 @@ def _version() -> str:
 def build_server(anchor: Anchor | None = None, *, host: str = "127.0.0.1",
                  port: int = 8080, namespace: str = "default",
                  token: str = "", cors_origin: str = "",
+                 tenant_tokens: dict[str, str] | None = None,
                  verbose: bool = False) -> ThreadingHTTPServer:
     """Create (but do not start) the Anchor HTTP server."""
+    tenants = {str(k).strip(): str(v).strip() for k, v in (tenant_tokens or {}).items()}
+    if any(not namespace or not tenant_token for namespace, tenant_token in tenants.items()):
+        raise ValueError("tenant namespaces and tokens must be non-empty")
+    if len(set(tenants.values())) != len(tenants):
+        raise ValueError("each tenant must have a unique bearer token")
+    if token and token in tenants.values():
+        raise ValueError("the global bearer token must differ from every tenant token")
     engine = anchor or Anchor(AnchorConfig())
     httpd = ThreadingHTTPServer((host, port), AnchorHTTPRequestHandler)
     httpd.daemon_threads = True
     httpd.anchor = engine                      # type: ignore[attr-defined]
     httpd.namespace = namespace                # type: ignore[attr-defined]
     httpd.token = token                        # type: ignore[attr-defined]
+    httpd.tenant_tokens = tenants              # type: ignore[attr-defined]
     httpd.cors_origin = cors_origin            # type: ignore[attr-defined]
     httpd.verbose = verbose                    # type: ignore[attr-defined]
-    httpd.bus = EventBus(engine, namespace)    # type: ignore[attr-defined]
+    default_bus = EventBus(engine, namespace)
+    httpd.bus = default_bus                    # type: ignore[attr-defined]
+    httpd.buses = {namespace: default_bus}     # type: ignore[attr-defined]
+    httpd.buses_lock = threading.Lock()        # type: ignore[attr-defined]
     return httpd
 
 
 def serve(anchor: Anchor | None = None, *, host: str = "127.0.0.1", port: int = 8080,
           namespace: str = "default", token: str = "", cors_origin: str = "",
+          tenant_tokens: dict[str, str] | None = None,
           open_browser: bool = False, verbose: bool = False) -> None:
     """Run the dashboard + API until interrupted."""
     if not token:
         token = os.environ.get("ANCHOR_API_TOKEN", "")
+    if tenant_tokens is None:
+        raw_tenant_tokens = os.environ.get("ANCHOR_TENANT_TOKENS", "")
+        tenant_tokens = json.loads(raw_tenant_tokens) if raw_tenant_tokens else {}
+        if not isinstance(tenant_tokens, dict):
+            raise ValueError("ANCHOR_TENANT_TOKENS must be a JSON object")
     httpd = build_server(anchor, host=host, port=port, namespace=namespace,
-                         token=token, cors_origin=cors_origin, verbose=verbose)
+                         token=token, cors_origin=cors_origin,
+                         tenant_tokens={str(k): str(v) for k, v in tenant_tokens.items()},
+                         verbose=verbose)
     httpd.bus.start()  # type: ignore[attr-defined]
     url = f"http://{host}:{port}/"
     print(f"Anchor dashboard  ->  {url}")
     print(f"  REST API        ->  {url}api/stats")
     print(f"  live events     ->  {url}api/events   (SSE)")
     print(f"  prometheus      ->  {url}metrics")
-    if token:
+    if token or tenant_tokens:
         print("  auth            ->  bearer token required")
-    if host not in ("127.0.0.1", "localhost", "::1") and not token:
+    if host not in ("127.0.0.1", "localhost", "::1") and not (token or tenant_tokens):
         print("  WARNING: bound to a non-loopback interface without a token. "
               "Set ANCHOR_API_TOKEN.")
     if open_browser:
@@ -523,5 +603,6 @@ def serve(anchor: Anchor | None = None, *, host: str = "127.0.0.1", port: int = 
     except KeyboardInterrupt:
         print("\nshutting down")
     finally:
-        httpd.bus.stop()  # type: ignore[attr-defined]
+        for bus in httpd.buses.values():  # type: ignore[attr-defined]
+            bus.stop()
         httpd.server_close()

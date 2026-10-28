@@ -232,6 +232,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
     <div class="pill"><i class="dot" id="chainDot"></i><span id="chainText">audit chain</span></div>
     <div class="pill mono" id="nsPill">default</div>
+    <input id="tokenInput" type="password" autocomplete="off" placeholder="API token"
+           aria-label="API bearer token" style="width:150px" />
+    <button class="ghost tiny" id="connectBtn">Connect</button>
   </header>
 
   <div class="cards" id="cards"></div>
@@ -306,9 +309,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <script>
 (function () {
   "use strict";
-  var NS = new URLSearchParams(location.search).get("namespace") || "default";
-  var TOKEN = new URLSearchParams(location.search).get("token") || "";
-  document.getElementById("nsPill").textContent = "namespace: " + NS;
+  var params = new URLSearchParams(location.search);
+  var NS = params.get("namespace") || "";
+  var TOKEN = sessionStorage.getItem("anchor_api_token") || "";
+  // Backward compatibility for old dashboard links: capture once, then remove
+  // the secret from browser history and the address bar.
+  if (params.get("token")) {
+    TOKEN = params.get("token");
+    sessionStorage.setItem("anchor_api_token", TOKEN);
+    params.delete("token");
+    history.replaceState(null, "", location.pathname + (params.toString() ? "?" + params : ""));
+  }
+  document.getElementById("tokenInput").value = TOKEN;
+  document.getElementById("nsPill").textContent = "namespace: " + (NS || "server default");
 
   function el(tag, cls, text) {
     var n = document.createElement(tag);
@@ -324,17 +337,26 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   function api(path, opts) {
     opts = opts || {};
     opts.headers = headers();
-    var sep = path.indexOf("?") === -1 ? "?" : "&";
-    return fetch(path + sep + "namespace=" + encodeURIComponent(NS), opts)
+    var suffix = NS ? (path.indexOf("?") === -1 ? "?" : "&") +
+      "namespace=" + encodeURIComponent(NS) : "";
+    return fetch(path + suffix, opts)
       .then(function (r) {
         return r.json().then(function (j) {
+          if (r.status === 401) {
+            document.getElementById("liveText").textContent = "token required";
+            document.getElementById("liveDot").className = "dot bad";
+          }
           if (!r.ok) { throw new Error(j.error || r.statusText); }
+          if (j.namespace && !NS) {
+            NS = j.namespace;
+            document.getElementById("nsPill").textContent = "namespace: " + NS;
+          }
           return j;
         });
       });
   }
   function post(path, body) {
-    body.namespace = NS;
+    if (NS) { body.namespace = NS; }
     return api(path, { method: "POST", body: JSON.stringify(body) });
   }
   var toastEl = document.getElementById("toast"), toastTimer;
@@ -694,15 +716,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     r.events.slice().reverse().forEach(pushEvent);
   }).catch(function () {});
 
-  var es = new EventSource("/api/events?namespace=" + encodeURIComponent(NS));
-  es.onopen = function () { document.getElementById("liveText").textContent = "live"; };
-  es.onerror = function () {
-    document.getElementById("liveText").textContent = "reconnecting";
-    document.getElementById("liveDot").className = "dot bad";
-  };
   var pending = null;
-  es.onmessage = function (m) {
-    var data = JSON.parse(m.data);
+  var eventSource = null, streamAbort = null, reconnectTimer = null;
+  function onStreamData(data) {
     if (data.type === "audit") {
       document.getElementById("liveDot").className = "dot live";
       document.getElementById("liveText").textContent = "live";
@@ -710,8 +726,72 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       clearTimeout(pending);
       pending = setTimeout(refresh, 320);   // debounce bursts of events
     }
-  };
+  }
+  function eventPath() {
+    return "/api/events" + (NS ? "?namespace=" + encodeURIComponent(NS) : "");
+  }
+  function reconnecting() {
+    document.getElementById("liveText").textContent = "reconnecting";
+    document.getElementById("liveDot").className = "dot bad";
+  }
+  function startEvents() {
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    if (streamAbort) { streamAbort.abort(); streamAbort = null; }
+    clearTimeout(reconnectTimer);
+    if (!TOKEN) {
+      eventSource = new EventSource(eventPath());
+      eventSource.onopen = function () {
+        document.getElementById("liveText").textContent = "live";
+      };
+      eventSource.onerror = reconnecting;
+      eventSource.onmessage = function (m) { onStreamData(JSON.parse(m.data)); };
+      return;
+    }
+    // EventSource cannot attach Authorization headers, so authenticated browser
+    // sessions consume the same SSE endpoint through a streaming fetch.
+    streamAbort = new AbortController();
+    fetch(eventPath(), { headers: headers(), signal: streamAbort.signal })
+      .then(function (r) {
+        if (!r.ok || !r.body) { throw new Error("event stream unavailable"); }
+        document.getElementById("liveText").textContent = "live";
+        var reader = r.body.getReader(), decoder = new TextDecoder(), buffer = "";
+        function pump() {
+          return reader.read().then(function (part) {
+            if (part.done) { throw new Error("event stream ended"); }
+            buffer += decoder.decode(part.value, { stream: true });
+            var blocks = buffer.split("\n\n");
+            buffer = blocks.pop();
+            blocks.forEach(function (block) {
+              var lines = block.split("\n").filter(function (line) {
+                return line.indexOf("data:") === 0;
+              });
+              if (lines.length) {
+                onStreamData(JSON.parse(lines.map(function (line) {
+                  return line.slice(5).trim();
+                }).join("\n")));
+              }
+            });
+            return pump();
+          });
+        }
+        return pump();
+      })
+      .catch(function (err) {
+        if (err.name === "AbortError") { return; }
+        reconnecting();
+        reconnectTimer = setTimeout(startEvents, 2000);
+      });
+  }
 
+  document.getElementById("connectBtn").addEventListener("click", function () {
+    TOKEN = document.getElementById("tokenInput").value.trim();
+    if (TOKEN) { sessionStorage.setItem("anchor_api_token", TOKEN); }
+    else { sessionStorage.removeItem("anchor_api_token"); }
+    startEvents();
+    refresh();
+  });
+
+  startEvents();
   refresh();
   window.addEventListener("resize", loadGraph);
 })();

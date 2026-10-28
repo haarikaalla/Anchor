@@ -4,19 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "anchor-memory"
-version = "0.2.0"
+version = "0.3.0"
 description = "Anchor: persistent belief-memory infrastructure for AI agents with provenance, Bayesian confidence, reinforcement, temporal reasoning, contradiction detection, explainability, decay and human confirmation."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
-authors = [{ name = "Anchor" }]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Haarika Alla", email = "harikaalla7@gmail.com" }]
 keywords = [
     "memory", "agents", "llm", "mcp", "belief", "provenance", "rag",
     "knowledge-graph", "explainability", "ai-safety",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache Software License",
     "Intended Audience :: Developers",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]

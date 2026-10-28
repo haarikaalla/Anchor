@@ -40,7 +40,8 @@ evidence) of a Beta distribution:
   bound.
 
 Reinforcement adds trust-scaled evidence to `alpha`; contradiction adds it to
-`beta`. Both are **capped per source** (see §6).
+`beta`. Both are **capped per source**, and can also be capped across a declared
+source group (see §6).
 
 ## 3. Temporal reasoning & decay
 
@@ -97,11 +98,14 @@ Memory is a high-value attack surface. Anchor's layered controls:
    trusted (or blindly dropped).
 2. **Provenance-weighted evidence** — every observation moves confidence in
    proportion to source `trust`.
-3. **Per-source evidence caps** — a single source's cumulative supporting *and*
-   contradicting evidence is trust-scaled and bounded, defeating repetition /
-   Sybil flooding.
-4. **Corroboration requirement** — promotion to `active` can require multiple
-   distinct sources.
+3. **Per-source evidence caps** — a single identity's cumulative supporting and
+   contradicting evidence is trust-scaled and bounded, defeating repetition.
+4. **Per-group evidence caps** — identities known to share an owner, pipeline or
+   trust domain can be assigned one `source_group` and share an aggregate budget.
+   This limits known correlated-source amplification; it is not automatic Sybil
+   detection.
+5. **Corroboration requirement** — promotion to `active` can require multiple
+   independent source groups rather than multiple labels for one source.
 
 ## 7. Storage & tamper-evident audit
 
@@ -113,6 +117,16 @@ The **audit log is append-only and hash-chained per namespace**:
 `hash = sha256(prev_hash + canonical(event))`. `verify_audit_chain` recomputes
 the chain and detects any tampering — giving cryptographic provenance over how a
 belief came to be.
+
+Idempotency receipts are stored alongside beliefs and scoped by namespace. Each
+receipt binds a caller-provided key to the canonical request hash and serialized
+result. An identical retry replays the result without adding evidence; a changed
+payload under the same key fails as a conflict.
+
+Backups use SQLite's online backup API, so the copy is consistent while the
+service is live. Anchor reopens the destination and runs `PRAGMA integrity_check`
+before returning success. `anchor doctor` combines that database check with
+audit-chain verification.
 
 ## 8. Explainability
 
@@ -147,9 +161,12 @@ hooking the engine. That choice means the stream reflects only committed state a
 works across processes — a CLI `observe` in one terminal appears live in a
 dashboard served by another.
 
-Security: loopback binding by default, optional bearer token compared with
-`hmac.compare_digest`, CORS disabled unless explicitly configured, a request body
-cap, strict `nosniff`/`DENY`/`no-referrer` headers, and no filesystem serving.
+Security: loopback binding by default, optional global bearer token and
+namespace-scoped tenant tokens compared with `hmac.compare_digest`, CORS disabled
+unless explicitly configured, a request body cap, strict
+`nosniff`/`DENY`/`no-referrer` headers, and no filesystem serving. Tenant tokens
+derive their namespace at the boundary; attempts to name or directly address
+another tenant's objects return `403`.
 `server/dashboard.py` is a single self-contained HTML document that renders all
 data through `textContent`; `innerHTML` and `eval` appear nowhere, enforced by a
 test.
@@ -171,7 +188,16 @@ real runs, documentation cannot silently drift from behaviour.
 timers surfaced via `Anchor.stats()` — enough to wire into Prometheus/OpenTelemetry
 without adding dependencies to the core.
 
-## 13. Integration surface
+## 13. Deployment boundary
+
+The production image runs as an unprivileged UID, persists only `/data`, exposes
+a health check and supports a read-only root filesystem. The supplied Compose
+profile binds to loopback, sets `no-new-privileges` and stores the database in a
+named volume. CI builds this image, tests Python 3.10–3.13, installs the wheel in
+a clean environment, performs static security analysis and audits installed
+dependencies. Dependabot covers Python, Actions and Docker updates weekly.
+
+## 14. Integration surface
 
 - **MCP** (`anchor/mcp/server.py`) exposes the engine as MCP tools for any host.
 - **HTTP** (`anchor/server/`) — REST + SSE + Prometheus, `anchor serve`.

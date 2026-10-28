@@ -34,10 +34,13 @@ def _get(base, path, token=""):
         return resp.status, resp.read().decode()
 
 
-def _post(base, path, payload):
+def _post(base, path, payload, token="", extra_headers=None):
+    headers = {"Content-Type": "application/json", **(extra_headers or {})}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(
         base + path, data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"}, method="POST",
+        headers=headers, method="POST",
     )
     with urllib.request.urlopen(req, timeout=5) as resp:
         return resp.status, json.loads(resp.read().decode())
@@ -173,6 +176,63 @@ def test_bearer_token_guards_the_api(anchor):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_tenant_tokens_cannot_cross_namespace_boundaries(anchor):
+    httpd = build_server(
+        anchor,
+        port=0,
+        tenant_tokens={"tenant-a": "token-a", "tenant-b": "token-b"},
+    )
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{port}"
+    try:
+        _, created = _post(
+            base,
+            "/api/observe",
+            {"subject": "customer", "predicate": "tier", "object": "gold"},
+            token="token-a",
+        )
+        assert created["belief"]["namespace"] == "tenant-a"
+        assert _get(base, "/api/beliefs", token="token-a")[0] == 200
+
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            _get(base, "/api/beliefs?namespace=tenant-a", token="token-b")
+        assert exc.value.code == 403
+
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            _get(base, f"/api/belief/{created['belief']['id']}", token="token-b")
+        assert exc.value.code == 404
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_tenant_token_configuration_rejects_ambiguous_credentials(anchor):
+    with pytest.raises(ValueError, match="unique"):
+        build_server(anchor, port=0, tenant_tokens={"tenant-a": "same", "tenant-b": "same"})
+    with pytest.raises(ValueError, match="global"):
+        build_server(anchor, port=0, token="shared", tenant_tokens={"tenant-a": "shared"})
+    with pytest.raises(ValueError, match="non-empty"):
+        build_server(anchor, port=0, tenant_tokens={"tenant-a": ""})
+
+
+def test_http_idempotency_key_returns_original_result(server):
+    payload = {"subject": "job", "predicate": "status", "object": "running"}
+    headers = {"Idempotency-Key": "job-event-1"}
+    _, first = _post(server, "/api/observe", payload, extra_headers=headers)
+    _, replay = _post(server, "/api/observe", payload, extra_headers=headers)
+    assert replay["belief"]["id"] == first["belief"]["id"]
+
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _post(
+            server,
+            "/api/observe",
+            {**payload, "object": "failed"},
+            extra_headers=headers,
+        )
+    assert exc.value.code == 409
 
 
 def test_oversized_body_is_rejected(server):

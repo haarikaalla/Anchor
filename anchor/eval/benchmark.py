@@ -24,8 +24,10 @@ We then ask each memory for the *current* value of every slot and score:
    per-source evidence cap is built to defeat, so a perfect score there is close
    to tautological. :func:`run_sweep` varies the attacker along the two axes that
    actually break the defence — *trust* and *number of identities* — and is the
-   honest way to read this harness. Anchor has **no Sybil defence**: the evidence
-   cap is per source, so N identities buy N times the cap.
+   honest way to read this harness. Without correlation metadata, the evidence
+   cap is per source, so N identities buy N times the cap. A second sweep maps
+   those identities to one declared source group and measures the aggregate cap;
+   Anchor does not automatically discover that identities are related.
 
 Run with::
 
@@ -59,6 +61,7 @@ BENCH_CONFIG: dict[str, Any] = {
     "min_sources_for_active": 2,
     "max_source_evidence": 3.0,
     "recency_half_life": 20 * DAY,
+    "max_source_group_evidence": 0.75,
 }
 
 
@@ -75,7 +78,8 @@ class Scenario:
 def generate_scenario(n_subjects: int = 30, seed: int = 7,
                       poison_fraction: float = 0.3,
                       attacker_trust: float = 0.25,
-                      attacker_identities: int = 1) -> Scenario:
+                      attacker_identities: int = 1,
+                      correlate_attackers: bool = False) -> Scenario:
     """Build the deterministic event stream.
 
     ``attacker_trust`` and ``attacker_identities`` describe the threat model.
@@ -87,7 +91,8 @@ def generate_scenario(n_subjects: int = 30, seed: int = 7,
     * ``attacker_identities`` above 1 splits the attack across sources, which
       defeats the *per-source* evidence cap.
     """
-    rng = random.Random(seed)
+    # Reproducible synthetic test data, never used for a security decision.
+    rng = random.Random(seed)  # nosec B311
     values = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
               "golf", "hotel", "india", "juliet"]
     predicate = "current_value"
@@ -132,7 +137,8 @@ def generate_scenario(n_subjects: int = 30, seed: int = 7,
                 src = ("attacker" if attacker_identities == 1
                        else f"attacker_{k % attacker_identities}")
                 events.append(Fact(subject, predicate, false_val, t=t,
-                                   trust=attacker_trust, source=src))
+                                   trust=attacker_trust, source=src,
+                                   source_group="attacker-cluster" if correlate_attackers else ""))
 
     # Distractor facts (noise).
     for k in range(n_subjects):
@@ -232,8 +238,9 @@ def run_sweep(n_subjects: int = 30, seed: int = 7) -> dict[str, Any]:
         claim should win, but it means the headline number describes a
         low-trust attacker specifically, not poisoning in general.
     ``attacker_identities``
-        The evidence cap is per *source*, so a Sybil attacker simply buys more
-        cap. Anchor has no Sybil defence today; this quantifies the gap.
+        Without correlation metadata, a Sybil attacker buys more per-source
+        capacity. The paired correlated sweep assigns those identities to one
+        source group and measures the aggregate group cap.
 
     Also ablates :data:`BENCH_CONFIG` one knob at a time, which shows the whole
     headline result rests on ``max_source_evidence``.
@@ -246,12 +253,26 @@ def run_sweep(n_subjects: int = 30, seed: int = 7) -> dict[str, Any]:
              for v in (0.25, 0.5, 0.6, 0.9)]
     sybil = [(n, _anchor_only(generate_scenario(**base, attacker_identities=n)))
              for n in (1, 2, 3, 5, 10, 20)]
+    correlated_sybil = [
+        (
+            n,
+            _anchor_only(
+                generate_scenario(
+                    **base,
+                    attacker_identities=n,
+                    correlate_attackers=True,
+                )
+            ),
+        )
+        for n in (1, 2, 3, 5, 10, 20)
+    ]
 
     scenario = generate_scenario(**base)
     defaults = AnchorConfig()
     short = {"min_sources_for_active": "min_sources",
              "max_source_evidence": "evidence_cap",
-             "recency_half_life": "half_life"}
+             "recency_half_life": "half_life",
+             "max_source_group_evidence": "group_evidence_cap"}
     ablation = [("all tuned", _anchor_only(scenario))]
     for knob in BENCH_CONFIG:
         ablation.append((f"default {short[knob]}",
@@ -261,6 +282,9 @@ def run_sweep(n_subjects: int = 30, seed: int = 7) -> dict[str, Any]:
         "seed_sweep": [{"seed": s, **r} for s, r in seeds],
         "trust_sweep": [{"attacker_trust": v, **r} for v, r in trust],
         "sybil_sweep": [{"attacker_identities": n, **r} for n, r in sybil],
+        "correlated_sybil_sweep": [
+            {"attacker_identities": n, **r} for n, r in correlated_sybil
+        ],
         "ablation": [{"config": c, **r} for c, r in ablation],
     }
 
@@ -306,12 +330,19 @@ def main(json_path: str = "", sweep: bool = False) -> dict[str, Any]:
                   ["identities", *_METRIC_COLS],
                   [[str(r["attacker_identities"]), *_fmt(r)] for r in sw["sybil_sweep"]])
         con.print("[dim]The evidence cap is per source, so extra identities buy extra "
-                  "cap. Anchor has no Sybil defence today.[/dim]")
+                  "cap when no correlation metadata is available.[/dim]")
+
+        con.table("same identities mapped to one source group",
+                  ["identities", *_METRIC_COLS],
+                  [[str(r["attacker_identities"]), *_fmt(r)]
+                   for r in sw["correlated_sybil_sweep"]])
+        con.print("[dim]Operator-supplied source groups share an aggregate cap, "
+                  "limiting identity rotation inside a known trust domain.[/dim]")
 
         con.table("config ablation (seed fixed)", ["config", *_METRIC_COLS],
                   [[r["config"], *_fmt(r)] for r in sw["ablation"]])
-        con.print("[dim]max_source_evidence carries the entire headline result; the "
-                  "other two knobs change nothing.[/dim]")
+        con.print("[dim]The ablation makes each configured defence independently "
+                  "inspectable rather than treating the score as a black box.[/dim]")
 
     if json_path:
         import json as _json

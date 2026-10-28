@@ -50,6 +50,14 @@ def test_evidence_cap_is_per_source_so_sybil_attacks_degrade_it():
     assert sybil["poison_resistance"] < single["poison_resistance"]
 
 
+def test_correlated_source_groups_limit_known_sybil_clusters():
+    ungrouped = _anchor_only(generate_scenario(attacker_identities=10))
+    grouped = _anchor_only(
+        generate_scenario(attacker_identities=10, correlate_attackers=True)
+    )
+    assert grouped["poison_resistance"] > ungrouped["poison_resistance"]
+
+
 def test_the_evidence_cap_is_what_carries_the_headline_result():
     """Ablation: the other two tuned knobs are decorative on this scenario."""
     scenario = generate_scenario(seed=7)
