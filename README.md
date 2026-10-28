@@ -52,6 +52,29 @@ sources, and multi-agent workflows where tools may disagree. It turns those
 facts into governed state with tenant boundaries, retry safety, provenance,
 contradiction review, recovery procedures and measurable failure modes.
 
+### Why AI developers would use it
+
+Most agent-memory libraries answer **“what text is similar?”** Anchor answers
+**“what should the agent currently believe, why, and what evidence could change
+that belief?”** That distinction makes it useful as a governed memory layer
+behind tool-using agents rather than another conversation-history wrapper.
+
+| AI development need | Anchor capability |
+|---|---|
+| Give an agent persistent memory | Python API, REST, MCP and framework tool schemas share one belief engine. |
+| Stop a tool result from silently replacing user truth | Functional conflicts create reviewable contradictions; neither claim is deleted. |
+| Explain an answer to a user or reviewer | Every belief exposes its sources, Bayesian interval, decay forecast and audit timeline. |
+| Limit poisoned or duplicated evidence | Trust weighting, per-source limits and shared caps for identities in one declared source group. |
+| Retry unreliable agent/tool calls safely | Namespace-scoped idempotency receipts replay the original result and reject changed payloads. |
+| Serve multiple customers | Tenant tokens derive and enforce namespace access at the API boundary. |
+| Evaluate instead of relying on a demo | A deterministic adversarial harness compares five memory strategies and publishes failure sweeps. |
+
+An agent can observe facts from users and tools, retrieve the strongest current
+belief, pause when a contradiction appears, ask for confirmation, resolve the
+conflict and later explain the complete decision trail. This closed loop —
+**observe → evaluate → challenge → resolve → explain** — is Anchor's most
+distinctive feature for AI application developers.
+
 ---
 
 ## The problem
@@ -331,6 +354,48 @@ to independent encrypted storage and test restoration on a schedule.
 CI tests Python 3.10–3.13, builds and installs the wheel in a clean environment,
 builds the container, runs static security analysis and audits installed Python
 packages. Dependabot checks Python, GitHub Actions and Docker dependencies weekly.
+
+### Dependabot: what the version means
+
+The first line in `.github/dependabot.yml` is `version: 2`. That is the current
+**Dependabot configuration-file schema**, not the installed version of a
+Dependabot package. Dependabot itself is operated by GitHub; this repository
+declares what ecosystems it should inspect and how often.
+
+| Ecosystem checked weekly | Current repository baseline | What Dependabot updates |
+|---|---|---|
+| Python (`pip`) | Ranges declared in `pyproject.toml` | Optional SDKs, MCP, CLI, framework and development packages. |
+| GitHub Actions | `checkout@v7`, `setup-python@v7`, `setup-buildx-action@v4`, `build-push-action@v7` | Workflow action releases used by CI and security scans. |
+| Docker | `python:3.13-slim` | The Python runtime image referenced by the Dockerfile. |
+
+Updates are grouped by ecosystem to avoid a flood of tiny pull requests. Every
+proposal still passes the full test, package, container and security workflows
+before it should be merged. Dependabot does not read or modify Anchor's belief
+database or application data.
+
+### Performance profile and optimization path
+
+Anchor is deliberately optimized first for embedded and single-node workloads:
+zero core dependencies, SQLite WAL mode, indexed namespace/entity lookups,
+deterministic local embeddings, bounded HTTP request bodies and a read-only
+projection for explanations. This keeps local agent development fast and makes
+the engine easy to audit.
+
+For larger production workloads, optimize based on measured pressure rather than
+replacing components pre-emptively:
+
+| Observed pressure | Recommended next optimization |
+|---|---|
+| Many concurrent writers or multiple service replicas | Add a PostgreSQL store with transactions and connection pooling; keep SQLite for embedded deployments. |
+| Millions of beliefs or high-volume semantic recall | Add a vector index and metadata pre-filtering instead of scanning candidate embeddings. |
+| Repeated graph/explanation reads | Cache projections by audit sequence and invalidate them when the namespace changes. |
+| High observation throughput | Batch embedding requests and use an asynchronous production API adapter in front of the same engine. |
+| Large tenant fleet | Separate hot tenants, define retention/archival policies and export per-tenant latency/error metrics. |
+| Strict availability objectives | Run restore drills, load tests and failure-injection tests; move verified backups to independent encrypted storage. |
+
+The current implementation is therefore a strong, working enterprise foundation,
+while PostgreSQL, indexed vector retrieval and distributed deployment remain
+explicit scale-out steps rather than capabilities claimed without evidence.
 
 ---
 
