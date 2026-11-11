@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=84.2.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -27,22 +27,22 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-llm = ["openai>=1.0", "anthropic>=0.30"]
-mcp = ["mcp>=1.0"]
-cli = ["rich>=13.0"]
-mem0 = ["mem0ai>=0.1"]
-langchain = ["langchain-core>=0.2"]
-dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.5"]
+llm = ["openai>=3.46.0", "anthropic>=2.6.0"]
+mcp = ["mcp>=2.3.0"]
+cli = ["rich>=15.0.0"]
+mem0 = ["mem0ai>=2.2.1"]
+langchain = ["langchain-core>=1.7.6"]
+dev = ["pytest>=9.2.0", "pytest-cov>=7.1.0", "ruff>=0.17.4"]
 all = [
-    "openai>=1.0",
-    "anthropic>=0.30",
-    "mcp>=1.0",
-    "rich>=13.0",
-    "mem0ai>=0.1",
-    "langchain-core>=0.2",
-    "pytest>=7.4",
-    "pytest-cov>=4.1",
-    "ruff>=0.5",
+    "openai>=3.46.0",
+    "anthropic>=2.6.0",
+    "mcp>=2.3.0",
+    "rich>=15.0.0",
+    "mem0ai>=2.2.1",
+    "langchain-core>=1.7.6",
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.4",
 ]
 
 [project.scripts]
